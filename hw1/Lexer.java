@@ -3,9 +3,9 @@ import java.io.IOException;
 import java.util.*;
 
 public class Lexer {
-	private ArrayList<Token> tokens;
+	public ArrayList<Token> tokens;
 	private int position = 0;
-	private BufferedReader scanner;
+	private final BufferedReader scanner;
 
 	public Lexer(BufferedReader scanner) throws IOException {
 		this.scanner = scanner;
@@ -71,5 +71,44 @@ public class Lexer {
 			throw new InvalidTokenException(start, pos);
 		}
 		return str_len-1;
+	}
+
+	@Override
+	public String toString() {
+		StringBuilder sb = new StringBuilder();
+		int tablevel = 0;
+		for (Token token : tokens) {
+			switch (token) {
+				case LPAREN, RPAREN, EXCLAMATION, TRUE, FALSE:
+					sb.append(token.pattern);
+					break;
+				case SYS_OUT_PRINTLN, ELSE:
+					sb.append("\t".repeat(tablevel));
+					sb.append(token.pattern);
+					break;
+				case SEMICOLON:
+					sb.append(token.pattern);
+					sb.append('\n');
+					break;
+				case IF, WHILE:
+					sb.append("\t".repeat(tablevel));
+					sb.append(token.pattern);
+					sb.append(' ');
+					break;
+				case LBRACKET:
+					sb.append(' ');
+					sb.append(token.pattern);
+					sb.append('\n');
+					tablevel++;
+					break;
+				case RBRACKET:
+					tablevel--;
+					sb.append("\t".repeat(tablevel));
+					sb.append(token.pattern);
+					sb.append('\n');
+					break;
+			}
+		}
+		return sb.toString();
 	}
 }

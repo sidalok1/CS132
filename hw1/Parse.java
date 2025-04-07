@@ -12,7 +12,9 @@ public class Parse {
 				lexer = new Lexer(newBufferedReader(Path.of(args[1])));
 			} catch (Exception e) {
 				e.printStackTrace();
+				return;
 			}
+			System.out.println(lexer.toString());
 		}
 	}
 }
