@@ -1,10 +1,9 @@
 public class InvalidTokenException extends RuntimeException {
-	public final String token;
+	public final char c;
 	public final int char_num;
-	public InvalidTokenException(String token, int char_num) {
-		super(String.format("Invalid token: %s at position %d",
-											token,          char_num));
-		this.token = token;
+	public InvalidTokenException(char c, int char_num) {
+		super(String.format("Invalid character: %c at position %d", c, char_num));
+		this.c = c;
 		this.char_num = char_num;
 	}
 }

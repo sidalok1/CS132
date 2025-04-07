@@ -1,11 +1,9 @@
-import java.util.regex.Pattern;
-
 public enum Token {
-	LBRACKET("\\{"),
-	RBRACKET("\\}"),
+	LBRACKET("{"),
+	RBRACKET("}"),
 	SYS_OUT_PRINTLN("System.out.println"),
-	LPAREN("\\("),
-	RPAREN("\\)"),
+	LPAREN("("),
+	RPAREN(")"),
 	SEMICOLON(";"),
 	IF("if"),
 	ELSE("else"),
@@ -14,18 +12,14 @@ public enum Token {
 	FALSE("false"),
 	EXCLAMATION("!");
 
-	private final Pattern pattern;
+	public final String pattern;
 
 	Token(String s) {
-		this.pattern = Pattern.compile(s);
+		this.pattern = s;
 	}
 
-	public static Token match(String s, int pos) {
-		for (Token t : Token.values()) {
-			if (t.pattern.matcher(s).matches()) {
-				return t;
-			}
-		}
-		throw new InvalidTokenException(s, pos);
+	@Override
+	public String toString() {
+		return this.pattern;
 	}
 }

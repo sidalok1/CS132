@@ -1,7 +1,7 @@
-while ( ! false ) {
-	if ( ! ! ! true ) {
-		System.out.println ( ! ! false ) ;
-		System.out.println ( ! true ) ;
+while (!false) {
+	if (!!!true) {
+		System.out.println(!!false);
+		System.out.println(!true);
 	}
-	else { }
+	else {}
 }
