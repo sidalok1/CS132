@@ -81,18 +81,21 @@ public class Parser {
 					nonterminal.name() + " to a rule starting with "+
 					nextToken.name());
 		}
+		Node next;
 		for (Symbol symbol : production_rule) {
-			switch (symbol) {
-				case Epsilon e -> { continue; }
-				case Nonterminal nt -> {
-					Node next = new Node(nt);
+			String symbolType = symbol.getClass().getSimpleName();
+			switch (symbolType) {
+				case "Epsilon" :
+					break;
+				case "Nonterminal" :
+					next = new Node(symbol);
 					this.parse(next);
 					node.production.add(next);
-				}
-				case Terminal t -> {
+					break;
+				case "Terminal" :
 					Terminal next_terminal = this.tokens.poll();
-					if (t == next_terminal) {
-						Node next = new Node(next_terminal);
+					if (symbol == next_terminal) {
+						next = new Node(next_terminal);
 						node.production.add(next);
 					} else if (next_terminal == null) {
 						throw new ParseFailed("Failed to parse tree, ran out of tokens");
@@ -100,7 +103,7 @@ public class Parser {
 						throw new ParseFailed("Failed to parse tree, invalid token: " +
 								next_terminal.name());
 					}
-				}
+					break;
 			}
 		}
 	}

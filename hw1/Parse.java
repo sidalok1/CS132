@@ -1,6 +1,7 @@
 import parsetree.ParseFailed;
 
 import java.io.File;
+import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.text.ParseException;
 
@@ -12,7 +13,8 @@ public class Parse {
 			File file = null;
 			Lexer lexer;
 			try {
-				lexer = new Lexer(newBufferedReader(Path.of(args[1])));
+				Path path = FileSystems.getDefault().getPath(args[1]);
+				lexer = new Lexer(newBufferedReader(path));
 			} catch (Exception e) {
 				e.printStackTrace();
 				return;

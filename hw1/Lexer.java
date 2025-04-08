@@ -25,42 +25,53 @@ public class Lexer {
 				next = this.scanner.read();
 				continue;
 			}
-			nextToken =
-				switch (next) {
-					case '{' -> Terminal.LBRACKET;
-					case '}' -> Terminal.RBRACKET;
-					case '(' -> Terminal.LPAREN;
-					case ')' -> Terminal.RPAREN;
-					case ';' -> Terminal.SEMICOLON;
-					case '!' -> Terminal.EXCLAMATION;
-					case 'S' -> {
-						pos += this.findInBuffer("System.out.println", pos);
-						yield Terminal.SYS_OUT_PRINTLN;
-					}
-					case 'i' -> {
-						pos += this.findInBuffer("if", pos);
-						yield Terminal.IF;
-					}
-					case 'e' -> {
-						pos += this.findInBuffer("else", pos);
-						yield Terminal.ELSE;
-					}
-					case 'w' -> {
-						pos += this.findInBuffer("while", pos);
-						yield Terminal.WHILE;
-					}
-					case 't' -> {
-						pos += this.findInBuffer("true", pos);
-						yield Terminal.TRUE;
-					}
-					case 'f' -> {
-						pos += this.findInBuffer("false", pos);
-						yield Terminal.FALSE;
-					}
-					default -> {
-						throw new InvalidTokenException((char) next, pos);
-					}
-				};
+
+			switch (next) {
+				case '{':
+					nextToken = Terminal.LBRACKET;
+					break;
+				case '}':
+					nextToken = Terminal.RBRACKET;
+					break;
+				case '(' :
+					nextToken =  Terminal.LPAREN;
+					break;
+				case ')' :
+					nextToken =  Terminal.RPAREN;
+					break;
+				case ';' :
+					nextToken =  Terminal.SEMICOLON;
+					break;
+				case '!' :
+					nextToken =  Terminal.EXCLAMATION;
+					break;
+				case 'S':
+					pos += this.findInBuffer("System.out.println", pos);
+					nextToken = Terminal.SYS_OUT_PRINTLN;
+					break;
+				case 'i' :
+					pos += this.findInBuffer("if", pos);
+					nextToken = Terminal.IF;
+					break;
+				case 'e' :
+					pos += this.findInBuffer("else", pos);
+					nextToken = Terminal.ELSE;
+					break;
+				case 'w' :
+					pos += this.findInBuffer("while", pos);
+					nextToken = Terminal.WHILE;
+					break;
+				case 't' :
+					pos += this.findInBuffer("true", pos);
+					nextToken = Terminal.TRUE;
+					break;
+				case 'f' :
+					pos += this.findInBuffer("false", pos);
+					nextToken = Terminal.FALSE;
+					break;
+				default :
+					throw new InvalidTokenException((char) next, pos);
+			};
 			tokens.add(nextToken);
 			pos++;
 			next = this.scanner.read();
@@ -79,16 +90,16 @@ public class Lexer {
 		return str_len-1;
 	}
 
-	@Override
+	/*@Override
 	public String toString() {
 		StringBuilder sb = new StringBuilder();
 		int tablevel = 0;
 		for (Terminal token : tokens) {
 			switch (token) {
-				case LPAREN, RPAREN, EXCLAMATION, TRUE, FALSE:
+				case LPAREN: case RPAREN: case EXCLAMATION: case TRUE: case FALSE:
 					sb.append(token.pattern);
 					break;
-				case SYS_OUT_PRINTLN, ELSE:
+				case SYS_OUT_PRINTLN: case ELSE:
 					sb.append("\t".repeat(tablevel));
 					sb.append(token.pattern);
 					break;
@@ -96,7 +107,7 @@ public class Lexer {
 					sb.append(token.pattern);
 					sb.append('\n');
 					break;
-				case IF, WHILE:
+				case IF: case WHILE:
 					sb.append("\t".repeat(tablevel));
 					sb.append(token.pattern);
 					sb.append(' ');
@@ -116,5 +127,5 @@ public class Lexer {
 			}
 		}
 		return sb.toString();
-	}
+	}*/
 }
