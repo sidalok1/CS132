@@ -1,3 +1,5 @@
+package parsetree;
+
 public class InvalidTokenException extends RuntimeException {
 	public final char c;
 	public final int char_num;

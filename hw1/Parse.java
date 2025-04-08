@@ -1,5 +1,8 @@
+import parsetree.ParseFailed;
+
 import java.io.File;
 import java.nio.file.Path;
+import java.text.ParseException;
 
 import static java.nio.file.Files.newBufferedReader;
 
@@ -14,7 +17,14 @@ public class Parse {
 				e.printStackTrace();
 				return;
 			}
-			System.out.println(lexer.toString());
+			Parser parser;
+			try {
+				parser = new Parser(lexer.getTokens());
+			} catch (ParseFailed e) {
+				System.out.println("Parse error");
+				return;
+			}
+			System.out.println("Program parsed successfully");
 		}
 	}
 }

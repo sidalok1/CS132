@@ -1,4 +1,6 @@
-public enum Token {
+package parsetree;
+
+public enum Terminal implements Symbol {
 	LBRACKET("{"),
 	RBRACKET("}"),
 	SYS_OUT_PRINTLN("System.out.println"),
@@ -14,7 +16,7 @@ public enum Token {
 
 	public final String pattern;
 
-	Token(String s) {
+	Terminal(String s) {
 		this.pattern = s;
 	}
 

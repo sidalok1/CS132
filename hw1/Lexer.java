@@ -1,18 +1,24 @@
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.util.*;
+import parsetree.*;
 
 public class Lexer {
-	public ArrayList<Token> tokens;
-	private int position = 0;
+	public Queue<Terminal> getTokens() {
+		return (Queue<Terminal>) tokens.clone();
+	}
+
+
+
+	private final LinkedList<Terminal> tokens;
 	private final BufferedReader scanner;
 
 	public Lexer(BufferedReader scanner) throws IOException {
 		this.scanner = scanner;
-		tokens = new ArrayList<>();
+		tokens = new LinkedList<>();
 		int pos = 0;
 		int next = this.scanner.read();
-		Token nextToken;
+		Terminal nextToken;
 		while (next != -1) {
 			if (next == ' ' || next == '\t' || next == '\n' || next == '\r') {
 				pos++;
@@ -21,35 +27,35 @@ public class Lexer {
 			}
 			nextToken =
 				switch (next) {
-					case '{' -> Token.LBRACKET;
-					case '}' -> Token.RBRACKET;
-					case '(' -> Token.LPAREN;
-					case ')' -> Token.RPAREN;
-					case ';' -> Token.SEMICOLON;
-					case '!' -> Token.EXCLAMATION;
+					case '{' -> Terminal.LBRACKET;
+					case '}' -> Terminal.RBRACKET;
+					case '(' -> Terminal.LPAREN;
+					case ')' -> Terminal.RPAREN;
+					case ';' -> Terminal.SEMICOLON;
+					case '!' -> Terminal.EXCLAMATION;
 					case 'S' -> {
 						pos += this.findInBuffer("System.out.println", pos);
-						yield Token.SYS_OUT_PRINTLN;
+						yield Terminal.SYS_OUT_PRINTLN;
 					}
 					case 'i' -> {
 						pos += this.findInBuffer("if", pos);
-						yield Token.IF;
+						yield Terminal.IF;
 					}
 					case 'e' -> {
 						pos += this.findInBuffer("else", pos);
-						yield Token.ELSE;
+						yield Terminal.ELSE;
 					}
 					case 'w' -> {
 						pos += this.findInBuffer("while", pos);
-						yield Token.WHILE;
+						yield Terminal.WHILE;
 					}
 					case 't' -> {
 						pos += this.findInBuffer("true", pos);
-						yield Token.TRUE;
+						yield Terminal.TRUE;
 					}
 					case 'f' -> {
 						pos += this.findInBuffer("false", pos);
-						yield Token.FALSE;
+						yield Terminal.FALSE;
 					}
 					default -> {
 						throw new InvalidTokenException((char) next, pos);
@@ -77,7 +83,7 @@ public class Lexer {
 	public String toString() {
 		StringBuilder sb = new StringBuilder();
 		int tablevel = 0;
-		for (Token token : tokens) {
+		for (Terminal token : tokens) {
 			switch (token) {
 				case LPAREN, RPAREN, EXCLAMATION, TRUE, FALSE:
 					sb.append(token.pattern);
