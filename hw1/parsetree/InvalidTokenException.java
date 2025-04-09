@@ -1,11 +1,9 @@
 package parsetree;
 
+/**
+ * Generic exception, which was used in debugging to more easily identify when a
+ * failure was or was not due to the Lexer implementation
+ */
 public class InvalidTokenException extends RuntimeException {
-	public final char c;
-	public final int char_num;
-	public InvalidTokenException(char c, int char_num) {
-		super(String.format("Invalid character: %c at position %d", c, char_num));
-		this.c = c;
-		this.char_num = char_num;
-	}
+	public InvalidTokenException(String message) { super(message); }
 }

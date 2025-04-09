@@ -1,5 +1,9 @@
 package parsetree;
 
+/**
+ * Data structure representing a Token, or Terminal symbol
+ * @see Symbol
+ */
 public enum Terminal implements Symbol {
 	LBRACKET("{"),
 	RBRACKET("}"),
@@ -20,6 +24,10 @@ public enum Terminal implements Symbol {
 		this.pattern = s;
 	}
 
+	/**
+	 * The underlying token, as a string
+	 * @return token string
+	 */
 	@Override
 	public String toString() {
 		return this.pattern;

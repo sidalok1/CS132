@@ -4,28 +4,31 @@ import java.util.*;
 import parsetree.*;
 
 public class Lexer {
+	private final LinkedList<Terminal> tokens;
 	public Queue<Terminal> getTokens() {
-		return (Queue<Terminal>) tokens.clone();
+		return tokens;
 	}
 
-
-
-	private final LinkedList<Terminal> tokens;
 	private final BufferedReader scanner;
 
-	public Lexer(BufferedReader scanner) throws IOException {
+	/**
+	 * Constructor for the Lexer, which takes in a BufferedReader and automatically
+	 * parses for tokens from the grammar.
+	 * @param scanner Standard Input buffered reader
+	 * @throws IOException Thrown if reading from buffer fails
+	 * @throws InvalidTokenException Generic exception indicating Lexer failed.
+	 */
+	public Lexer(BufferedReader scanner) throws InvalidTokenException, IOException {
 		this.scanner = scanner;
 		tokens = new LinkedList<>();
-		int pos = 0;
 		int next = this.scanner.read();
 		Terminal nextToken;
 		while (next != -1) {
+			//Skip whitespace
 			if (next == ' ' || next == '\t' || next == '\n' || next == '\r') {
-				pos++;
 				next = this.scanner.read();
 				continue;
 			}
-
 			switch (next) {
 				case '{':
 					nextToken = Terminal.LBRACKET;
@@ -46,86 +49,51 @@ public class Lexer {
 					nextToken =  Terminal.EXCLAMATION;
 					break;
 				case 'S':
-					pos += this.findInBuffer("System.out.println", pos);
+					this.findInBuffer("System.out.println");
 					nextToken = Terminal.SYS_OUT_PRINTLN;
 					break;
 				case 'i' :
-					pos += this.findInBuffer("if", pos);
+					this.findInBuffer("if");
 					nextToken = Terminal.IF;
 					break;
 				case 'e' :
-					pos += this.findInBuffer("else", pos);
+					this.findInBuffer("else");
 					nextToken = Terminal.ELSE;
 					break;
 				case 'w' :
-					pos += this.findInBuffer("while", pos);
+					this.findInBuffer("while");
 					nextToken = Terminal.WHILE;
 					break;
 				case 't' :
-					pos += this.findInBuffer("true", pos);
+					this.findInBuffer("true");
 					nextToken = Terminal.TRUE;
 					break;
 				case 'f' :
-					pos += this.findInBuffer("false", pos);
+					this.findInBuffer("false");
 					nextToken = Terminal.FALSE;
 					break;
 				default :
-					throw new InvalidTokenException((char) next, pos);
-			};
+					throw new InvalidTokenException("Could not find character '" + next + "' in input stream");
+			}
 			tokens.add(nextToken);
-			pos++;
 			next = this.scanner.read();
 		}
 	}
 
-	private int findInBuffer(String s, int pos) throws IOException {
+	/**
+	 * For use when you know what the next token in the buffer must be
+	 * @param s String to search for
+	 * @throws InvalidTokenException Generic Lexer failure exception
+	 * @throws IOException Reading from buffer failed
+	 */
+	private void findInBuffer(String s) throws InvalidTokenException, IOException {
 		char start = s.charAt(0);
 		int str_len = s.length();
 		char[] cbuf = new char[str_len];
 		cbuf[0] = start;
 		if (this.scanner.read(cbuf, 1, str_len-1) != str_len-1 ||
 								!Arrays.equals(cbuf, s.toCharArray())) {
-			throw new InvalidTokenException(start, pos);
+			throw new InvalidTokenException("Could not find '" + s + "' in buffer");
 		}
-		return str_len-1;
 	}
-
-	/*@Override
-	public String toString() {
-		StringBuilder sb = new StringBuilder();
-		int tablevel = 0;
-		for (Terminal token : tokens) {
-			switch (token) {
-				case LPAREN: case RPAREN: case EXCLAMATION: case TRUE: case FALSE:
-					sb.append(token.pattern);
-					break;
-				case SYS_OUT_PRINTLN: case ELSE:
-					sb.append("\t".repeat(tablevel));
-					sb.append(token.pattern);
-					break;
-				case SEMICOLON:
-					sb.append(token.pattern);
-					sb.append('\n');
-					break;
-				case IF: case WHILE:
-					sb.append("\t".repeat(tablevel));
-					sb.append(token.pattern);
-					sb.append(' ');
-					break;
-				case LBRACKET:
-					sb.append(' ');
-					sb.append(token.pattern);
-					sb.append('\n');
-					tablevel++;
-					break;
-				case RBRACKET:
-					tablevel--;
-					sb.append("\t".repeat(tablevel));
-					sb.append(token.pattern);
-					sb.append('\n');
-					break;
-			}
-		}
-		return sb.toString();
-	}*/
 }
