@@ -1,30 +1,29 @@
-import parsetree.ParseFailed;
-
-import java.io.File;
-import java.nio.file.Path;
-import java.text.ParseException;
-
-import static java.nio.file.Files.newBufferedReader;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 
 public class Parse {
+	/**
+	 * Parse class main method: entry point into the parser.
+	 * <p>
+	 * The contents of the file to be parsed should be REDIRECTED to the
+	 * process via standard input. The program will not attempt to open a
+	 * file passed as an argument.
+	 * @param args Unused.
+	 */
 	public static void main(String[] args) {
-		if (args.length == 2 && args[0].equals("<")) {
-			File file = null;
-			Lexer lexer;
-			try {
-				lexer = new Lexer(newBufferedReader(Path.of(args[1])));
-			} catch (Exception e) {
-				e.printStackTrace();
-				return;
-			}
-			Parser parser;
-			try {
-				parser = new Parser(lexer.getTokens());
-			} catch (ParseFailed e) {
-				System.out.println("Parse error");
-				return;
-			}
+		Lexer lexer;
+		try {
+			BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+			lexer = new Lexer(reader);
+		} catch (Exception e) {
+			System.out.println("Parse error");
+			return;
+		}
+		try {
+			new Parser(lexer.getTokens());
 			System.out.println("Program parsed successfully");
+		} catch (Exception e) {
+			System.out.println("Parse error");
 		}
 	}
 }
