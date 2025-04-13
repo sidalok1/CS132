@@ -29,6 +29,6 @@ replay_pid*
 .vscode/
 
 # Development framework
-cs132-framework/
-
-# Submissions
+cs132-framework
+out
+**/*.tar
