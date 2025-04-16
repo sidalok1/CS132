@@ -29,6 +29,10 @@ replay_pid*
 .vscode/
 
 # Development framework
+**/*.jj
+hw2/miniJavaParser
+hw2/syntaxtree
+hw2/visitor
 cs132-framework
 out
 **/*.tar
