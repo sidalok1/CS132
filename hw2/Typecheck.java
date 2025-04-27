@@ -1,7 +1,7 @@
 import miniJavaParser.MiniJavaParser;
-import syntaxtree.Goal;
-import syntaxtree.Node;
+import syntaxtree.*;
 import visitor.*;
+import java.util.HashSet;
 
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -18,4 +18,5 @@ public class Typecheck {
         }
         System.out.println("Program type checked successfully");
     }
+
 }
