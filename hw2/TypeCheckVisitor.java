@@ -289,6 +289,10 @@ public class TypeCheckVisitor extends DepthFirstVisitor {
             arg.accept(this);
             argumentTypes.add(returnType);
         }
+        if ( argumentTypes.size() != target.parameters().size() ) {
+            throw new TypeCheckFailed("Type check failed at method call: " + node.toString() +
+                    "\n(number of arguments does not match number of parameters)");
+        }
         for ( Types paramType : target.parameters().values() ) {
             Types argType = argumentTypes.pollFirst();
             if ( argType == null || !isSubtype(argType, paramType) ) {
