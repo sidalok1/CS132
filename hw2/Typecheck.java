@@ -1,4 +1,5 @@
 import miniJavaParser.MiniJavaParser;
+import miniJavaParser.ParseException;
 import syntaxtree.*;
 import visitor.*;
 import java.util.HashSet;
@@ -7,7 +8,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 
 public class Typecheck {
-    public static void main(String[] args) {
+    public static void main(String[] args) throws ParseException {
         try {
             new MiniJavaParser(new InputStreamReader(System.in));
             Goal root = MiniJavaParser.Goal();
@@ -15,6 +16,7 @@ public class Typecheck {
             visitor.visit(root);
         } catch ( Exception e ) {
             System.out.println("Type error");
+            return;
         }
         System.out.println("Program type checked successfully");
     }
