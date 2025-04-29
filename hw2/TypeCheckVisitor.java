@@ -5,6 +5,12 @@ import visitor.GJNoArguDepthFirst;
 
 import java.util.*;
 
+/**
+ * Main visitor class that type checks from the root node, a Goal node.
+ * Instead of subclassing a visitor that can return values and take arguments,
+ * global variables (A, C, inheritance, returnType, declaredTypes, and globalFields)
+ * are used to pass state, and on a parse failure, an exception is thrown.
+ */
 public class TypeCheckVisitor extends DepthFirstVisitor {
     private TypeEnvironment A;
     private String C = null;

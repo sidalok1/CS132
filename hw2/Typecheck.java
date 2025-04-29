@@ -7,6 +7,9 @@ import java.util.HashSet;
 import java.io.IOException;
 import java.io.InputStreamReader;
 
+/**
+ * Main function. Redirect file contents of the file you want to typecheck
+ */
 public class Typecheck {
     public static void main(String[] args) throws ParseException {
         try {
