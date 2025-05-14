@@ -1,10 +1,25 @@
 package utils;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.HashSet;
+import minijava.syntaxtree.*;
+import minijava.visitor.GJNoArguDepthFirst;
+
+import java.util.*;
 
 public class Graph extends HashMap<String, String> {
+    public static class GraphVisitor extends GJNoArguDepthFirst<Graph> {
+        public Graph visit(Goal n) {return n.f1.accept(this); }
+        public Graph visit(NodeListOptional n) {
+            Stack<Edge> edges = new Stack<>();
+            for (Node node : n.nodes) {
+                if ( node instanceof ClassExtendsDeclaration ) {
+                    String id = ((ClassExtendsDeclaration) node).f1.f0.tokenImage;
+                    String superclass = ((ClassExtendsDeclaration) node).f3.f0.tokenImage;
+                    edges.push(new Edge(id, superclass));
+                }
+            }
+            return new Graph(edges);
+        }
+    }
     /**
      * A graph intended for representing class inheritance relations.
      * Java (and therefore minijava) forbids single inheritance, so
@@ -14,6 +29,13 @@ public class Graph extends HashMap<String, String> {
     public Graph( Iterable<Edge> pairs ) {
         super();
         for ( Edge edge : pairs ) {
+            this.put( edge.from(), edge.to() );
+        }
+    }
+    public Graph( Goal n ) {
+        super();
+        Graph g = (new GraphVisitor()).visit(n);
+        for ( Edge edge : g.E() ) {
             this.put( edge.from(), edge.to() );
         }
     }
