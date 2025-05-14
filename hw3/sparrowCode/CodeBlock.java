@@ -15,7 +15,7 @@ public class CodeBlock {
     }
 
     public String toString() {
-        StringJoiner sj = new StringJoiner("\n\t", "\t", "");
+        StringJoiner sj = new StringJoiner("\n");
         for (Instruction instruction : instructions) { sj.add(instruction.toString()); }
         if ( returnID != null ) {
             sj.add("return " + returnID);
