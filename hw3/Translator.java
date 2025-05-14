@@ -347,7 +347,7 @@ public class Translator extends DepthFirstVisitor {
         n.f2.accept(this);
         String index = returnID;
         String idx_plus_one = newTemp();
-        String array_base = newTemp();
+        String array_offset = newTemp();
         String offset_base = newTemp();
         String one = newConst();
         String four = newConst();
@@ -364,11 +364,11 @@ public class Translator extends DepthFirstVisitor {
         instCache.add(new Instruction(Type.ERROR, "array index out of bounds"));
         instCache.add(new Instruction(Type.LABEL, highboundcheck));
         instCache.add(new Instruction(Type.INDEX, len, id, "0"));
-        instCache.add(new Instruction(Type.LESS, highbound, id, len));
+        instCache.add(new Instruction(Type.LESS, highbound, index, len));
         instCache.add(new Instruction(Type.IF0, highbound, err)); // assert idx < len
 
-        instCache.add(new Instruction(Type.MULT, array_base, idx_plus_one, four));
-        instCache.add(new Instruction(Type.ADD, offset_base, id, array_base));
+        instCache.add(new Instruction(Type.MULT, array_offset, idx_plus_one, four));
+        instCache.add(new Instruction(Type.ADD, offset_base, id, array_offset));
         n.f5.accept(this);
         String val = returnID;
         instCache.add(new Instruction(Type.ARRAY, offset_base, "0", val));
@@ -599,7 +599,7 @@ public class Translator extends DepthFirstVisitor {
         }
     }
     public void visit(ThisExpression n) { returnID = "this"; }
-
+    public void visit(BracketExpression n) { n.f1.accept(this); }
 }
 
 class ClassVisitor extends GJNoArguDepthFirst<HashSet<ClassDeclaration>> {
