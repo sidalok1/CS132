@@ -20,7 +20,7 @@ public class Translator extends DepthFirstVisitor {
     private Program program;
     private FunDecl funDecl;
     private final HashMap<String, Integer> methodTable = new HashMap<>();
-    private HashMap<String, Integer> fields = new HashMap<>();
+    private final HashMap<String, Integer> fields = new HashMap<>();
     private LinkedHashMap<String, String> env = new LinkedHashMap<>();
     private LinkedList<Instruction> instCache = new LinkedList<>();
     private StringBuilder args = new StringBuilder();
@@ -108,11 +108,15 @@ public class Translator extends DepthFirstVisitor {
             typedefs.put(cls, classDef);
         }
         LinkedHashSet<String> allMethods = new LinkedHashSet<>();
+        LinkedHashSet<String> allFields = new LinkedHashSet<>();
         for ( Typedef tdef : typedefs.values() ) {
             allMethods.addAll(tdef.methods);
+            allFields.addAll(tdef.fields);
         }
         ArrayList<String> mstrings = new ArrayList<>(allMethods);
+        ArrayList<String> fstrings = new ArrayList<>(allFields);
         for ( String method : mstrings ) { methodTable.put(method, mstrings.indexOf(method)); }
+        for ( String field : fstrings ) { fields.put(field, fstrings.indexOf(field)); }
     }
     private Node findClass(String classname) {
         for (Node n : goal.f1.nodes) {
@@ -156,7 +160,7 @@ public class Translator extends DepthFirstVisitor {
         instCache = new LinkedList<>();
         n.f15.accept(this);
         CodeBlock b = new CodeBlock(instCache, returnID);
-        f.FunctionName = "Main";
+        f.FunctionName = main;
         f.block = b;
         f.paramIDs = params;
         program.functions.add(f);
@@ -167,18 +171,13 @@ public class Translator extends DepthFirstVisitor {
         Typedef typedef = typedefs.get(id);
         FunDecl constructor = new FunDecl();
         CodeBlock initCode = new CodeBlock();
-        fields = new HashMap<>();
-        ArrayList<String> classFields = new ArrayList<>(typedef.fields);
-        for ( String f : classFields ) {
-            fields.put(f, classFields.indexOf(f));
-        }
         for ( Node method : n.f6.nodes ) { method.accept(this); }
 
         String ret = newTemp();
         String mTable = newTemp();
         String e0 = newTemp();
         initCode.instructions.add(
-                new Instruction(Type.INT, e0, Integer.toString((typedef.fields.size()+1)*4))
+                new Instruction(Type.INT, e0, Integer.toString((fields.size()+1)*4))
         );
         initCode.instructions.add(
                 new Instruction(Type.ALLOC, ret, e0)
@@ -194,8 +193,6 @@ public class Translator extends DepthFirstVisitor {
                 new Instruction(Type.ARRAY, ret, "0", mTable)
         );
         for ( String m : typedef.methods ) {
-            // The logic here needs to change, since the methods need to have a specific order as defined by global
-            // method table
             String definedInClass = definedIn(m, id);
             String e2  = newTemp();
             initCode.instructions.add(
@@ -217,18 +214,13 @@ public class Translator extends DepthFirstVisitor {
         Typedef typedef = typedefs.get(id);
         FunDecl constructor = new FunDecl();
         CodeBlock initCode = new CodeBlock();
-        fields = new HashMap<>();
-        ArrayList<String> classFields = new ArrayList<>(typedef.fields);
-        for ( String f : classFields ) {
-            fields.put(f, classFields.indexOf(f));
-        }
         for ( Node method : n.f4.nodes ) { method.accept(this); }
 
         String ret = newTemp();
         String mTable = newTemp();
         String e0 = newTemp();
         initCode.instructions.add(
-                new Instruction(Type.INT, e0, Integer.toString((typedef.fields.size()+1)*4))
+                new Instruction(Type.INT, e0, Integer.toString((fields.size()+1)*4))
         );
         initCode.instructions.add(
                 new Instruction(Type.ALLOC, ret, e0)
@@ -286,12 +278,12 @@ public class Translator extends DepthFirstVisitor {
     public void visit(FormalParameter n) {
         String param = newParam();
         String id = idVisitor.visit(n);
-        env.put(id, param);
+        env.put(id, param + "_" + id);
     }
     public void visit(VarDeclaration n) {
         String var = newVar();
         String id = idVisitor.visit(n);
-        env.put(id, var);
+        env.put(id, var + "_" + id);
     }
 
     public void visit(Block n) {
@@ -302,24 +294,24 @@ public class Translator extends DepthFirstVisitor {
 
     public void visit(IfStatement n) {
         n.f2.accept(this);
-        String e0 = returnID, lFalse = newLabel(), lEnd = newLabel();
-        instCache.add(new Instruction(Type.IF0, e0, lFalse));
+        String e0 = returnID, l = newLabel();
+        instCache.add(new Instruction(Type.IF0, e0, l + "_else"));
         n.f4.accept(this);
-        instCache.add(new Instruction(Type.GOTO, lEnd));
-        instCache.add(new Instruction(Type.LABEL, lFalse));
+        instCache.add(new Instruction(Type.GOTO, l + "_endif"));
+        instCache.add(new Instruction(Type.LABEL, l + "_else"));
         n.f6.accept(this);
-        instCache.add(new Instruction(Type.LABEL, lEnd));
+        instCache.add(new Instruction(Type.LABEL, l + "_endif"));
     }
 
     public void visit(WhileStatement n) { // Done
-        String loop_start = newLabel(), loop_end = newLabel();
-        instCache.add(new Instruction(Type.LABEL, loop_start));
-        n.f2.accept(this);
+        String loop = newLabel(), loop_end = newLabel();
+        instCache.add(new Instruction(Type.LABEL, loop + "_while_start"));
+        n.f2.accept(this); // check condition
         String cont = returnID;
-        instCache.add(new Instruction(Type.IF0, cont, loop_end));
+        instCache.add(new Instruction(Type.IF0, cont, loop + "_while_end")); // if condition is false
         n.f4.accept(this);
-        instCache.add(new Instruction(Type.GOTO, loop_start));
-        instCache.add(new Instruction(Type.LABEL, loop_end));
+        instCache.add(new Instruction(Type.GOTO, loop + "_while_start"));
+        instCache.add(new Instruction(Type.LABEL, loop + "_while_end"));
     }
 
     public void visit(PrintStatement n) { // Done
@@ -357,15 +349,15 @@ public class Translator extends DepthFirstVisitor {
         instCache.add(new Instruction(Type.ADD, idx_plus_one, index, one));
 
         String lowbound = newTemp(), highbound = newTemp(), len = newTemp(),
-                err = newLabel(), highboundcheck = newLabel();
+                l = newLabel();
         instCache.add(new Instruction(Type.LESS, lowbound, idx_plus_one, one));
-        instCache.add(new Instruction(Type.IF0, lowbound, highboundcheck)); // assert idx >= 0
-        instCache.add(new Instruction(Type.LABEL, err));
+        instCache.add(new Instruction(Type.IF0, lowbound, l + "_check_high_bound")); // assert idx >= 0
+        instCache.add(new Instruction(Type.LABEL, l + "_error"));
         instCache.add(new Instruction(Type.ERROR, "array index out of bounds"));
-        instCache.add(new Instruction(Type.LABEL, highboundcheck));
+        instCache.add(new Instruction(Type.LABEL, l + "_check_high_bound"));
         instCache.add(new Instruction(Type.INDEX, len, id, "0"));
         instCache.add(new Instruction(Type.LESS, highbound, index, len));
-        instCache.add(new Instruction(Type.IF0, highbound, err)); // assert idx < len
+        instCache.add(new Instruction(Type.IF0, highbound, l + "_error")); // assert idx < len
 
         instCache.add(new Instruction(Type.MULT, array_offset, idx_plus_one, four));
         instCache.add(new Instruction(Type.ADD, offset_base, id, array_offset));
@@ -377,7 +369,7 @@ public class Translator extends DepthFirstVisitor {
     public void visit(ArrayLength n) { // Done
         n.f0.accept(this);
         String id = returnID;
-        String ret = newTemp();
+        String ret = newTemp() + "_" + id + "_length";
         instCache.add(new Instruction(Type.INDEX, ret, id, "0"));
         returnID = ret;
     }
@@ -394,15 +386,15 @@ public class Translator extends DepthFirstVisitor {
         instCache.add(new Instruction(Type.ADD, idx_plus_one, idx, one));
 
         String lowbound = newTemp(), highbound = newTemp(), len = newTemp(),
-                err = newLabel(), highboundcheck = newLabel();
+                l = newLabel();
         instCache.add(new Instruction(Type.LESS, lowbound, idx_plus_one, one));
-        instCache.add(new Instruction(Type.IF0, lowbound, highboundcheck)); // assert idx >= 0
-        instCache.add(new Instruction(Type.LABEL, err));
+        instCache.add(new Instruction(Type.IF0, lowbound, l + "_check_high_bound")); // assert idx >= 0
+        instCache.add(new Instruction(Type.LABEL, l + "_error"));
         instCache.add(new Instruction(Type.ERROR, "array index out of bounds"));
-        instCache.add(new Instruction(Type.LABEL, highboundcheck));
+        instCache.add(new Instruction(Type.LABEL, l + "_check_high_bound"));
         instCache.add(new Instruction(Type.INDEX, len, lst, "0"));
         instCache.add(new Instruction(Type.LESS, highbound, idx, len));
-        instCache.add(new Instruction(Type.IF0, highbound, err)); // assert idx < len
+        instCache.add(new Instruction(Type.IF0, highbound, l + "_error")); // assert idx < len
 
         String four = newConst();
         instCache.add(new Instruction(Type.INT, four, "4"));
@@ -422,11 +414,11 @@ public class Translator extends DepthFirstVisitor {
         String zero = newConst();
         String len = returnID;
         instCache.add(new Instruction(Type.INT, zero, "0"));
-        String lessthanzero = newTemp(), label = newLabel();
+        String lessthanzero = newTemp(), l = newLabel();
         instCache.add(new Instruction(Type.LESS, lessthanzero, len, zero)); // lessthanzero = ( len < zero ) ? 1 : 0
-        instCache.add(new Instruction(Type.IF0, lessthanzero, label)); // if (len < 0):
+        instCache.add(new Instruction(Type.IF0, lessthanzero, l + "_valid")); // if (len < 0):
         instCache.add(new Instruction(Type.ERROR, "Argument to alloc() must be positive")); // throw AllocError()
-        instCache.add(new Instruction(Type.LABEL, label)); // else:
+        instCache.add(new Instruction(Type.LABEL, l + "_valid")); // else:
         String one = newConst();
         instCache.add(new Instruction(Type.INT, one, "1"));
         String four = newConst();
@@ -442,8 +434,8 @@ public class Translator extends DepthFirstVisitor {
     }
 
     public void visit(AllocationExpression n) {
-        String ret = newTemp();
         String cls = n.f1.accept(idVisitor);
+        String ret = newTemp() + "_" + cls;
         String constructor = newTemp();
         instCache.add(new Instruction(Type.FUNC, constructor, cls));
         instCache.add(new Instruction(Type.CALL, ret, constructor));
@@ -459,13 +451,14 @@ public class Translator extends DepthFirstVisitor {
     }
 
     public void visit(MessageSend n) {
-        String ret = newTemp();
+
         n.f0.accept(this);
         String cls = returnID;
         String method = n.f2.accept(idVisitor);
-        String mtable = newTemp();
+        String ret = newTemp() + "_" + method + "_ret";
+        String mtable = newTemp() + "_methodTable";
         instCache.add(new Instruction(Type.INDEX, mtable, cls, "0"));
-        String func = newTemp();
+        String func = newTemp() + "_" + method;
         int i = methodTable.get(method) * 4;
         instCache.add(new Instruction(Type.INDEX, func, mtable, Integer.toString(i)));
         args = new StringBuilder(cls);
@@ -508,8 +501,8 @@ public class Translator extends DepthFirstVisitor {
         String inverse = newTemp(), negated = newTemp();
 
         n.f1.accept(this);
-        String zero = newConst();
         String value = returnID;
+        String zero = newConst();
 
         instCache.add(new Instruction(Type.INT, zero, "0"));
         instCache.add(new Instruction(Type.SUB, negated, zero, value));
@@ -570,15 +563,15 @@ public class Translator extends DepthFirstVisitor {
     }
 
     public void visit(IntegerLiteral n) { // Done
-        returnID = newTemp();
+        returnID = newTemp() + "_intLiteral";
         instCache.add(new Instruction(Type.INT, returnID, n.f0.tokenImage));
     }
     public void visit(TrueLiteral n) { // Done
-        returnID = newTemp();
+        returnID = newTemp() + "_trueLiteral";
         instCache.add(new Instruction(Type.INT, returnID, "1"));
     }
     public void visit(FalseLiteral n) { // Done
-        returnID = newTemp();
+        returnID = newTemp() + "_falseLiteral";
         instCache.add(new Instruction(Type.INT, returnID, "0"));
     }
     // All identifiers must be declared before ANY statement, meaning if you find
