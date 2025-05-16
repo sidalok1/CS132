@@ -9,15 +9,19 @@ public class Graph extends HashMap<String, String> {
     public static class GraphVisitor extends GJNoArguDepthFirst<Graph> {
         public Graph visit(Goal n) {return n.f1.accept(this); }
         public Graph visit(NodeListOptional n) {
-            Stack<Edge> edges = new Stack<>();
+            Graph g = new Graph();
             for (Node node : n.nodes) {
-                if ( node instanceof ClassExtendsDeclaration ) {
-                    String id = ((ClassExtendsDeclaration) node).f1.f0.tokenImage;
-                    String superclass = ((ClassExtendsDeclaration) node).f3.f0.tokenImage;
-                    edges.push(new Edge(id, superclass));
-                }
+                Graph ng = node.accept(this);
+                g.putAll(ng);
             }
-            return new Graph(edges);
+            return g;
+        }
+        public Graph visit(TypeDeclaration n) { return n.f0.choice.accept(this); }
+        public Graph visit(ClassDeclaration n) { return new Graph(); }
+        public Graph visit(ClassExtendsDeclaration n) {
+            Graph g = new Graph();
+            g.add(new Edge(n.f1.f0.tokenImage, n.f3.f0.tokenImage));
+            return g;
         }
     }
     /**
@@ -32,6 +36,7 @@ public class Graph extends HashMap<String, String> {
             this.put( edge.from(), edge.to() );
         }
     }
+    public Graph() { super(); }
     public Graph( Goal n ) {
         super();
         Graph g = (new GraphVisitor()).visit(n);

@@ -68,9 +68,7 @@ public class Translator extends DepthFirstVisitor {
         return cnst;
     }
     private void analyzeTypes() {
-        ClassVisitor cv = new ClassVisitor();
-        ClassExtendsVisitor ev = new ClassExtendsVisitor();
-        LinkedHashSet<String> order = new LinkedHashSet<>();
+        Stack<String> order = new Stack<>();
         for ( String outer : inheritance.keySet() ) {
             String cls = outer;
             while ( cls != null ) {
@@ -78,15 +76,15 @@ public class Translator extends DepthFirstVisitor {
                 cls = inheritance.get(cls);
             }
         }
-        Stack<String> s = new Stack<>();
-        s.addAll(order);
         for ( Node n : goal.f1.nodes ) { // non-inherited classes
             String cls = n.accept(idVisitor);
-            if ( cls != null && !order.contains(cls) ) { s.push(cls); }
+            if ( cls != null && !order.contains(cls) ) { order.push(cls); }
         }
-        while ( !s.isEmpty() ) {
-            String cls = s.pop();
+        while ( !order.isEmpty() ) {
+            String cls = order.pop();
+            if ( typedefs.containsKey(cls) ) { continue; }
             Typedef classDef = new Typedef();
+            classDef.classname = cls;
             Node c = findClass(cls);
             assert c != null;
             String superclass = c.accept(superclassVisitor);
@@ -105,7 +103,11 @@ public class Translator extends DepthFirstVisitor {
                 classDef.methods.add(mname);
             }
             LinkedHashSet<VarDeclaration> fields = c.accept(fieldsVisitor);
-            for ( VarDeclaration f : fields ) { classDef.fields.add(f.accept(idVisitor)); }
+            for ( VarDeclaration f : fields ) {
+                String fname = f.accept(idVisitor);
+                defines.computeIfAbsent(cls, k -> new HashSet<>()).add(fname);
+                classDef.fields.add(cls + "_" + f.accept(idVisitor));
+            }
             typedefs.put(cls, classDef);
         }
         LinkedHashSet<String> allMethods = new LinkedHashSet<>();
@@ -168,40 +170,32 @@ public class Translator extends DepthFirstVisitor {
     }
     public void visit(ClassExtendsDeclaration n) {
         String id = idVisitor.visit(n);
+        String superclass = superclassVisitor.visit(n);
         thisClass = id;
-        Typedef typedef = typedefs.get(id);
         FunDecl constructor = new FunDecl();
         CodeBlock initCode = new CodeBlock();
-        for ( Node method : n.f6.nodes ) { method.accept(this); }
-
-        String ret = newTemp();
-        String mTable = newTemp();
-        String e0 = newTemp();
+        String ret = newTemp() + "_" + id + "_instance";
+        String superinit = newTemp() + "_" + superclass + "_constructor";
         initCode.instructions.add(
-                new Instruction(Type.INT, e0, Integer.toString((fields.size()+1)*4))
+                new Instruction(Type.FUNC, superinit, superclass)
         );
         initCode.instructions.add(
-                new Instruction(Type.ALLOC, ret, e0)
+                new Instruction(Type.CALL, ret, superinit)
         );
-        String e1 = newTemp();
+        String methodtable = newTemp() + "_" + id + "_methodTable";
         initCode.instructions.add(
-                new Instruction(Type.INT, e1, Integer.toString((methodTable.size())*4))
+                new Instruction(Type.INDEX, methodtable, ret, "0")
         );
-        initCode.instructions.add(
-                new Instruction(Type.ALLOC, mTable, e1)
-        );
-        initCode.instructions.add(
-                new Instruction(Type.ARRAY, ret, "0", mTable)
-        );
-        for ( String m : typedef.methods ) {
-            String definedInClass = definedIn(m, id);
-            String e2  = newTemp();
+        for ( Node method : n.f6.nodes ) {
+            method.accept(this);
+            String mname = method.accept(idVisitor);
+            int midx = methodTable.get(mname)*4;
+            String mvar = newTemp() + "_" + mname;
             initCode.instructions.add(
-                    new Instruction(Type.FUNC, e2, definedInClass + "_" + m)
+                    new Instruction(Type.FUNC, mvar, id + "_" + mname)
             );
-            int i = methodTable.get(m) * 4;
             initCode.instructions.add(
-                    new Instruction(Type.ARRAY, mTable, Integer.toString(i), e2)
+                    new Instruction(Type.ARRAY, methodtable, Integer.toString(midx), mvar)
             );
         }
         initCode.returnID = ret;
@@ -215,36 +209,36 @@ public class Translator extends DepthFirstVisitor {
         Typedef typedef = typedefs.get(id);
         FunDecl constructor = new FunDecl();
         CodeBlock initCode = new CodeBlock();
-        for ( Node method : n.f4.nodes ) { method.accept(this); }
 
-        String ret = newTemp();
-        String mTable = newTemp();
-        String e0 = newTemp();
+        String ret = newTemp() + "_" + id + "_instance";
+        String mTable = newTemp() + "_" + id + "_methodTable";
+        String numFields = newTemp() + "_fieldByteCount";
         initCode.instructions.add(
-                new Instruction(Type.INT, e0, Integer.toString((fields.size()+1)*4))
+                new Instruction(Type.INT, numFields, Integer.toString((fields.size()+1)*4))
         );
         initCode.instructions.add(
-                new Instruction(Type.ALLOC, ret, e0)
+                new Instruction(Type.ALLOC, ret, numFields)
         );
-        String e1 = newTemp();
+        String numMethods = newTemp() + "_methodByteCount";
         initCode.instructions.add(
-                new Instruction(Type.INT, e1, Integer.toString((methodTable.size())*4))
+                new Instruction(Type.INT, numMethods, Integer.toString((methodTable.size())*4))
         );
         initCode.instructions.add(
-                new Instruction(Type.ALLOC, mTable, e1)
+                new Instruction(Type.ALLOC, mTable, numMethods)
         );
         initCode.instructions.add(
                 new Instruction(Type.ARRAY, ret, "0", mTable)
         );
-        for ( String m : typedef.methods ) {
-            // Class does not extend another, all methods must be defined here
-            String e2  = newTemp();
+        for ( Node method : n.f4.nodes ) {
+            method.accept(this);
+            String mname = method.accept(idVisitor);
+            String mvar = newTemp() + "_" + mname;
             initCode.instructions.add(
-                    new Instruction(Type.FUNC, e2, id + "_" + m)
+                    new Instruction(Type.FUNC, mvar, id + "_" + mname)
             );
-            int i = methodTable.get(m) * 4;
+            int midx = methodTable.get(mname)*4;
             initCode.instructions.add(
-                    new Instruction(Type.ARRAY, mTable, Integer.toString(i), e2)
+                    new Instruction(Type.ARRAY, mTable, Integer.toString(midx), mvar)
             );
         }
         initCode.returnID = ret;
@@ -331,7 +325,8 @@ public class Translator extends DepthFirstVisitor {
             instCache.add(new Instruction(Type.ID, e0, returnID));
         } else {
             // If the program already type checked and the identifier is not in the environment, it must be a field
-            int field_index = (fields.get(id)+1)*4;
+            String fromClass = definedIn(id, thisClass);
+            int field_index = (fields.get(fromClass + "_" + id)+1)*4;
             instCache.add(new Instruction(Type.ARRAY, "this", Integer.toString(field_index), returnID));
         }
     }
@@ -603,7 +598,8 @@ public class Translator extends DepthFirstVisitor {
             // This method should only be called if a field is being read, not written
             // Field can only be written to in assign statement, so this is the general
             //case where a field is being read. Add one since index zero is address of method table
-            int i = (fields.get(id)+1)*4;
+            String fromClass = definedIn(id, thisClass);
+            int i = (fields.get(fromClass + "_" + id)+1)*4;
             String newID = newTemp();
             instCache.add(new Instruction(Type.INDEX, newID, "this", Integer.toString(i)));
             returnID = newID;
@@ -651,6 +647,7 @@ class ClassExtendsVisitor extends GJNoArguDepthFirst<HashSet<ClassExtendsDeclara
     }
 }
 class SuperclassVisitor extends GJNoArguDepthFirst<String> {
+    public String visit(TypeDeclaration node) { return node.f0.choice.accept(this); }
     public String visit(ClassExtendsDeclaration node) { return node.f3.f0.tokenImage; }
     public String visit(ClassDeclaration node) { return null; }
 }
