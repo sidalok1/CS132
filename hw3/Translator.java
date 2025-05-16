@@ -21,7 +21,8 @@ public class Translator extends DepthFirstVisitor {
     private FunDecl funDecl;
     private final HashMap<String, Integer> methodTable = new HashMap<>();
     private final HashMap<String, Integer> fields = new HashMap<>();
-    private LinkedHashMap<String, String> env = new LinkedHashMap<>();
+    private LinkedHashMap<String, String> env_params = new LinkedHashMap<>();
+    private LinkedHashMap<String, String> env_vars = new LinkedHashMap<>();
     private LinkedList<Instruction> instCache = new LinkedList<>();
     private StringBuilder args = new StringBuilder();
     private String returnID;
@@ -154,8 +155,8 @@ public class Translator extends DepthFirstVisitor {
     public void visit(MainClass n) {
         FunDecl f = new FunDecl();
         String main = idVisitor.visit(n.f1);
-        env = new LinkedHashMap<>();
-        LinkedList<String> params = new LinkedList<>(env.keySet());
+        env_params = new LinkedHashMap<>();
+        LinkedList<String> params = new LinkedList<>(env_params.keySet());
         n.f14.accept(this);
         instCache = new LinkedList<>();
         n.f15.accept(this);
@@ -257,12 +258,13 @@ public class Translator extends DepthFirstVisitor {
     public void visit(MethodDeclaration n) {
         FunDecl f = new FunDecl();
         String fname = idVisitor.visit(n);
-        env = new LinkedHashMap<>();
-        env.put("this", "this");
+        env_params = new LinkedHashMap<>();
+        env_params.put("this", "this");
         if ( n.f4.present() ) {
             n.f4.node.accept(this);
         }
-        LinkedList<String> params = new LinkedList<>(env.values());
+        LinkedList<String> params = new LinkedList<>(env_params.values());
+        env_vars = new LinkedHashMap<>();
         n.f7.accept(this);
         instCache = new LinkedList<>();
         n.f8.accept(this);
@@ -273,17 +275,16 @@ public class Translator extends DepthFirstVisitor {
         f.paramIDs = params;
         program.functions.add(f);
     }
-    public void visit(FormalParameterList n) { n.f0.accept(this); n.f1.accept(this); }
     public void visit(FormalParameterRest n) { n.f1.accept(this); }
     public void visit(FormalParameter n) {
         String param = newParam();
         String id = idVisitor.visit(n);
-        env.put(id, param + "_" + id);
+        env_params.put(id, param + "_" + id);
     }
     public void visit(VarDeclaration n) {
         String var = newVar();
         String id = idVisitor.visit(n);
-        env.put(id, var + "_" + id);
+        env_vars.put(id, var + "_" + id);
     }
 
     public void visit(Block n) {
@@ -322,8 +323,11 @@ public class Translator extends DepthFirstVisitor {
     public void visit(AssignmentStatement n) { // Done
         n.f2.accept(this);
         String id = idVisitor.visit(n.f0);
-        if ( env.containsKey(id) ) {
-            String e0 = env.get(id);
+        if ( env_vars.containsKey(id) ) {
+            String e0 = env_vars.get(id);
+            instCache.add(new Instruction(Type.ID, e0, returnID));
+        } else if ( env_params.containsKey(id) ) {
+            String e0 = env_params.get(id);
             instCache.add(new Instruction(Type.ID, e0, returnID));
         } else {
             // If the program already type checked and the identifier is not in the environment, it must be a field
@@ -451,23 +455,31 @@ public class Translator extends DepthFirstVisitor {
     }
 
     public void visit(MessageSend n) {
-
+        String l = newLabel();
         n.f0.accept(this);
         String cls = returnID;
         String method = n.f2.accept(idVisitor);
         String ret = newTemp() + "_" + method + "_ret";
         String mtable = newTemp() + "_methodTable";
+        instCache.add(new Instruction(Type.IF0, cls, l + "_nullptr"));
         instCache.add(new Instruction(Type.INDEX, mtable, cls, "0"));
+        instCache.add(new Instruction(Type.IF0, mtable, l + "_nullptr"));
         String func = newTemp() + "_" + method;
         int i = methodTable.get(method) * 4;
         instCache.add(new Instruction(Type.INDEX, func, mtable, Integer.toString(i)));
         args = new StringBuilder(cls);
         if ( n.f4.present() ) { n.f4.accept(this); }
         instCache.add(new Instruction(Type.CALL, ret, func, args.toString()));
+        instCache.add(new Instruction(Type.GOTO, l + "_valid"));
+        instCache.add(new Instruction(Type.LABEL, l + "_nullptr"));
+        instCache.add(new Instruction(Type.ERROR, "null pointer"));
+        instCache.add(new Instruction(Type.LABEL, l + "_valid"));
         returnID = ret;
     }
     public void visit(ExpressionList n) {
+        StringBuilder oldargs = new StringBuilder(args);
         n.f0.accept(this);
+        args = oldargs;
         args.append(" ");
         args.append(returnID);
         for ( Node node : n.f1.nodes ) {
@@ -481,32 +493,36 @@ public class Translator extends DepthFirstVisitor {
     }
 
     public void visit(AndExpression n) { // Done
-        String result = newTemp();
+        String result = newTemp(), l = newLabel();
 
         n.f0.accept(this);
         String left = returnID;
 
+        instCache.add(new Instruction(Type.IF0, left, l + "_resultFalse"));
+
         n.f2.accept(this);
         String right = returnID;
 
-        String one = newConst(), sum = newTemp();
-        instCache.add(new Instruction(Type.INT, one, "1"));
-        instCache.add(new Instruction(Type.ADD, sum, left, right));
-        instCache.add(new Instruction(Type.LESS, result, one, sum));
+        instCache.add(new Instruction(Type.IF0, right, l + "_resultFalse"));
+
+        instCache.add(new Instruction(Type.INT, result, "1"));
+        instCache.add(new Instruction(Type.GOTO, l + "_andExpEnd"));
+        instCache.add(new Instruction(Type.LABEL, l + "_resultFalse"));
+        instCache.add(new Instruction(Type.INT, result, "0"));
+        instCache.add(new Instruction(Type.LABEL, l + "_andExpEnd"));
 
         returnID = result;
     }
 
     public void visit(NotExpression n) { // Done
-        String inverse = newTemp(), negated = newTemp();
+        String inverse = newTemp();
 
         n.f1.accept(this);
         String value = returnID;
-        String zero = newConst();
+        String one = newConst();
 
-        instCache.add(new Instruction(Type.INT, zero, "0"));
-        instCache.add(new Instruction(Type.SUB, negated, zero, value));
-        instCache.add(new Instruction(Type.MULT, inverse, negated, negated));
+        instCache.add(new Instruction(Type.INT, one, "1"));
+        instCache.add(new Instruction(Type.SUB, inverse, one, value));
 
         returnID = inverse;
     }
@@ -579,8 +595,10 @@ public class Translator extends DepthFirstVisitor {
     //in declarations should be added to the appropriate LinkedHashSet
     public void visit(Identifier n) {
         String id = idVisitor.visit(n);
-        if ( env.containsKey(id) ) {
-            returnID = env.get(id);
+        if ( env_vars.containsKey(id) ) {
+            returnID = env_vars.get(id);
+        } else if ( env_params.containsKey(id) ) {
+            returnID = env_params.get(id);
         } else {
             // This method should only be called if a field is being read, not written
             // Field can only be written to in assign statement, so this is the general
