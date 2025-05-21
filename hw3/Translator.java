@@ -17,6 +17,9 @@ public class Translator extends DepthFirstVisitor {
 
     private final HashMap<String, HashSet<String>> defines = new HashMap<>();
 
+    private final HashMap<String, String> funcMangler = new HashMap<>();
+    private final HashMap<String, String> constMangler = new HashMap<>();
+
     private Program program;
     private FunDecl funDecl;
     private final HashMap<String, Integer> methodTable = new HashMap<>();
@@ -67,6 +70,13 @@ public class Translator extends DepthFirstVisitor {
         c++;
         return cnst;
     }
+    private int f = 0;
+    private String newFunc() {
+        String func = "f" + f;
+        f++;
+        return func;
+    }
+
     private void analyzeTypes() {
         Stack<String> order = new Stack<>();
         for ( String outer : inheritance.keySet() ) {
@@ -83,6 +93,7 @@ public class Translator extends DepthFirstVisitor {
         while ( !order.isEmpty() ) {
             String cls = order.pop();
             if ( typedefs.containsKey(cls) ) { continue; }
+            constMangler.put(cls, newFunc() + cls);
             Typedef classDef = new Typedef();
             classDef.classname = cls;
             Node c = findClass(cls);
@@ -99,8 +110,10 @@ public class Translator extends DepthFirstVisitor {
             LinkedHashSet<MethodDeclaration> methods = c.accept(methodVisitor);
             for ( MethodDeclaration m : methods ) {
                 String mname = m.accept(idVisitor);
-                defines.computeIfAbsent(cls, k -> new HashSet<>()).add(mname);
+                //defines.computeIfAbsent(cls, k -> new HashSet<>()).add(mname);
                 classDef.methods.add(mname);
+                String canonicalMethod = cls + "_" + mname;
+                funcMangler.put(canonicalMethod, newFunc() + mname);
             }
             LinkedHashSet<VarDeclaration> fields = c.accept(fieldsVisitor);
             for ( VarDeclaration f : fields ) {
@@ -130,11 +143,11 @@ public class Translator extends DepthFirstVisitor {
         }
         return null;
     }
-    private String definedIn(String method, String classname) {
-        assert method != null && classname != null;
-        if (defines.get(classname).contains(method)) { return classname; }
+    private String definedIn(String identifier, String classname) {
+        assert identifier != null && classname != null;
+        if (defines.containsKey(classname) && defines.get(classname).contains(identifier)) { return classname; }
         else {
-            return definedIn(method, inheritance.get(classname));
+            return definedIn(identifier, inheritance.get(classname));
         }
     }
 
@@ -163,7 +176,8 @@ public class Translator extends DepthFirstVisitor {
         instCache = new LinkedList<>();
         n.f15.accept(this);
         CodeBlock b = new CodeBlock(instCache, returnID);
-        f.FunctionName = main;
+        f.FunctionName = newFunc() + main;
+        funcMangler.put(main, f.FunctionName);
         f.block = b;
         f.paramIDs = params;
         program.functions.add(f);
@@ -176,8 +190,9 @@ public class Translator extends DepthFirstVisitor {
         CodeBlock initCode = new CodeBlock();
         String ret = newTemp() + "_" + id + "_instance";
         String superinit = newTemp() + "_" + superclass + "_constructor";
+        String scls = constMangler.get(superclass);
         initCode.instructions.add(
-                new Instruction(Type.FUNC, superinit, superclass)
+                new Instruction(Type.FUNC, superinit, scls)
         );
         initCode.instructions.add(
                 new Instruction(Type.CALL, ret, superinit)
@@ -191,15 +206,16 @@ public class Translator extends DepthFirstVisitor {
             String mname = method.accept(idVisitor);
             int midx = methodTable.get(mname)*4;
             String mvar = newTemp() + "_" + mname;
+            String canonicalName = id + "_" + mname;
             initCode.instructions.add(
-                    new Instruction(Type.FUNC, mvar, id + "_" + mname)
+                    new Instruction(Type.FUNC, mvar, funcMangler.get(canonicalName))
             );
             initCode.instructions.add(
                     new Instruction(Type.ARRAY, methodtable, Integer.toString(midx), mvar)
             );
         }
         initCode.returnID = ret;
-        constructor.FunctionName = id;
+        constructor.FunctionName = constMangler.get(id);
         constructor.block = initCode;
         program.functions.add(constructor);
     }
@@ -233,8 +249,9 @@ public class Translator extends DepthFirstVisitor {
             method.accept(this);
             String mname = method.accept(idVisitor);
             String mvar = newTemp() + "_" + mname;
+            String canonicalName = id + "_" + mname;
             initCode.instructions.add(
-                    new Instruction(Type.FUNC, mvar, id + "_" + mname)
+                    new Instruction(Type.FUNC, mvar, funcMangler.get(canonicalName))
             );
             int midx = methodTable.get(mname)*4;
             initCode.instructions.add(
@@ -242,7 +259,7 @@ public class Translator extends DepthFirstVisitor {
             );
         }
         initCode.returnID = ret;
-        constructor.FunctionName = id;
+        constructor.FunctionName =  constMangler.get(id);
         constructor.block = initCode;
         program.functions.add(constructor);
     }
@@ -264,7 +281,8 @@ public class Translator extends DepthFirstVisitor {
         n.f8.accept(this);
         n.f10.accept(this);
         CodeBlock b = new CodeBlock(instCache, returnID);
-        f.FunctionName = thisClass + "_" + fname;
+        String canonicalName = thisClass + "_" + fname;
+        f.FunctionName = funcMangler.get(canonicalName);
         f.block = b;
         f.paramIDs = params;
         program.functions.add(f);
@@ -436,7 +454,8 @@ public class Translator extends DepthFirstVisitor {
         String cls = n.f1.accept(idVisitor);
         String ret = newTemp() + "_" + cls;
         String constructor = newTemp();
-        instCache.add(new Instruction(Type.FUNC, constructor, cls));
+        String constructorName = constMangler.get(cls);
+        instCache.add(new Instruction(Type.FUNC, constructor, constructorName));
         instCache.add(new Instruction(Type.CALL, ret, constructor));
         returnID = ret;
     }
@@ -462,9 +481,11 @@ public class Translator extends DepthFirstVisitor {
         String func = newTemp() + "_" + method;
         int i = methodTable.get(method) * 4;
         instCache.add(new Instruction(Type.INDEX, func, mtable, Integer.toString(i)));
+        StringBuilder oldArgs = new StringBuilder(args);
         args = new StringBuilder(cls);
         if ( n.f4.present() ) { n.f4.accept(this); }
         instCache.add(new Instruction(Type.CALL, ret, func, args.toString()));
+        args = oldArgs;
         instCache.add(new Instruction(Type.GOTO, l + "_valid"));
         instCache.add(new Instruction(Type.LABEL, l + "_nullptr"));
         instCache.add(new Instruction(Type.ERROR, "null pointer"));
@@ -472,9 +493,7 @@ public class Translator extends DepthFirstVisitor {
         returnID = ret;
     }
     public void visit(ExpressionList n) {
-        StringBuilder oldargs = new StringBuilder(args);
         n.f0.accept(this);
-        args = oldargs;
         args.append(" ");
         args.append(returnID);
         for ( Node node : n.f1.nodes ) {
