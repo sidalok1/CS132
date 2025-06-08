@@ -9,6 +9,7 @@ public class CodeGenerator implements Visitor {
     ArrayList<Function> functions;
     Function f;
 
+
     public CodeGenerator(Program program) {
         program.accept(this);
     }
@@ -17,7 +18,7 @@ public class CodeGenerator implements Visitor {
         n.funDecls.forEach(fn -> fn.accept(this));
     }
     public void visit(FunctionDecl n) {
-        f = new Function(n.functionName.name);
+        f = new Function(this.func(n.functionName.name));
         this.findIDs(n);
         labels = new HashMap<>(); //make sure mangled labels enforce scoping
         n.block.accept(this);
@@ -64,6 +65,7 @@ public class CodeGenerator implements Visitor {
     }
     public void visit(IfGoto n) {
         String pass = "pass" + i;
+        i++;
         f.add(RV.BNEZ(Reg.reg(n.condition), pass));
         f.add(RV.JAL(Reg.zero, this.mangle(n.label.toString())));
         f.add(RV.LABEL(pass));
@@ -84,7 +86,7 @@ public class CodeGenerator implements Visitor {
         f.add(RV.SW(Reg.reg(n.rhs), i * 4, r));
     }
     public void visit(Move_Reg_FuncName n) {
-        f.add(RV.LA(Reg.reg(n.lhs), n.rhs.name));
+        f.add(RV.LA(Reg.reg(n.lhs), this.func(n.rhs.name)));
     }
     public void visit(Move_Reg_Id n) {
         String id = n.rhs.toString();
@@ -136,7 +138,18 @@ public class CodeGenerator implements Visitor {
         }
         return ret.toString();
     }
-
+    HashMap<String, String> names = new HashMap<>();
+    private int k = 0;
+    private String func(String name) {
+        if (names.containsKey(name)) {
+            return names.get(name);
+        } else {
+            String mangled = "_" + k + "_" + name;
+            names.put(name, mangled);
+            k++;
+            return mangled;
+        }
+    }
     HashMap<String, String> labels = new HashMap<>();
     private int i = 0;
     private String mangle(String label) {
