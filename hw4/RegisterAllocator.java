@@ -39,9 +39,23 @@ public class RegisterAllocator extends DepthFirstVisitor {
     }
     Reg rd, rs1, rs2;
     HashMap<String, Reg> where;
+    public static class ParVisitor extends GJNoArguDepthFirst<String> {
+        public String visit(Call n) { return n.f3.f0.tokenImage; }
+    }
+    public static class ArgVisitor extends GJNoArguDepthFirst<ArrayList<String>> {
+        public ArrayList<String> visit(Identifier n) { return new ArrayList<>(Collections.singletonList(n.f0.tokenImage)); }
+        public ArrayList<String> visit(Call n) {
+            ArrayList<String> args = new ArrayList<>();
+            for (Node i : n.f5.nodes) {
+                args.addAll(i.accept(this));
+            }
+            return args;
+        }
+    }
 
     public void visit(Block n) {
-        int maxsave = analysis.LinearScan(params);
+        ArrayList<String> parameters = new ArrayList<>(params);
+        int maxsave = analysis.LinearScan(parameters);
         for (int i = 0; i < maxsave; i++) {
             code.instructions.add(
                     new Inst(Inst.Type.REGtoID, Reg.save(i), "_saved_"+i)
@@ -51,25 +65,61 @@ public class RegisterAllocator extends DepthFirstVisitor {
         LinkedList<Interval> active = new LinkedList<>();
         ArrayList<Instruction> instructions = n.accept(new InstructionVisitor());
         where = new HashMap<>();
+        //
         for ( Instruction i : instructions ) {
             int time = instructions.indexOf(i)+1;
             LinkedList<Interval> toRemove = new LinkedList<>();
             for ( Interval t : active) {
-                if (t.stop <= time) {
+                if (t.stop < time) {
                     where.remove(t.id);
                     toRemove.add(t);
                 }
             }
             active.removeAll(toRemove);
+            intervals.removeAll(toRemove);
             for ( Interval t : intervals ) {
-                if (t.start <= time) {
+                if (t.start <= time && !active.contains(t)) {
                     where.put(t.id, t.reg);
+                    if ( parameters.contains(t.id) && !(t.reg == Reg.STACK) ) {
+                        parameters.remove(t.id);
+                        int idx = params.indexOf(t.id);
+                        if ( idx < 6 ) {
+                            code.instructions.add(
+                                    new Inst(Inst.Type.REG, t.reg, Reg.arg(idx))
+                            );
+                        } else {
+                            code.instructions.add(
+                                    new Inst(Inst.Type.IDtoREG, t.reg, t.id)
+                            );
+                        }
+                    }
                     active.add(t);
                 }
             }
-            Iterator<String> _t = analysis.use(i).iterator();
-            String s1 = (_t.hasNext()) ? _t.next() : null;
-            String s2 = (_t.hasNext()) ? _t.next() : null;
+            String s1;
+            String s2;
+            Iterator<String> _t;
+            ArrayList<Integer> argsrestore = new ArrayList<>(Reg.args);
+            if (i.f0.which == LivenessAnalysis.Call) {
+                s1 = i.f0.choice.accept(new ParVisitor());
+                s2 = null;
+                ArrayList<String> args = i.f0.choice.accept(new ArgVisitor());
+                if ( args != null ) {
+//                    for (int x = 0; x < Math.min(args.size(), Reg.args); x++) {
+//                        Reg argreg = Reg.arg(x);
+//                        argsrestore.add(x);
+//                        code.instructions.add(
+//                                new Inst(Inst.Type.REGtoID, argreg, "_arg_" + x)
+//                        );
+//                    }
+
+                }
+            } else {
+                _t = analysis.use(i).iterator();
+                s1 = (_t.hasNext()) ? _t.next() : null;
+                s2 = (_t.hasNext()) ? _t.next() : null;
+            }
+
             boolean restore1 = false;
             boolean restore2 = false;
             if ( s1 != null ) {
@@ -84,6 +134,7 @@ public class RegisterAllocator extends DepthFirstVisitor {
                     code.instructions.add(
                             new Inst(Inst.Type.IDtoREG, Reg.reserve(0), s1)
                     );
+                    rs1 = Reg.reserve(0);
                 }
             }
             if ( s2 != null ) {
@@ -98,13 +149,14 @@ public class RegisterAllocator extends DepthFirstVisitor {
                     code.instructions.add(
                             new Inst(Inst.Type.IDtoREG, Reg.reserve(1), s2)
                     );
+                    rs2 = Reg.reserve(1);
                 }
             }
             _t = analysis.def(i).iterator();
             String def = (_t.hasNext()) ? _t.next() : null;
             boolean writeback = false;
             if ( def != null ) {
-                rd = where.get(def);
+                rd = where.get(def); if (rd == null) { rd = Reg.STACK; }
                 if ( rd.equals(Reg.STACK) ) {
                     if (!restore1 && where.containsValue(Reg.reserve(0))) {
                         restore1 = true;
@@ -132,6 +184,13 @@ public class RegisterAllocator extends DepthFirstVisitor {
                         new Inst(Inst.Type.IDtoREG, Reg.reserve(1), "_restore_1")
                 );
             }
+//            for ( Integer x : argsrestore ) {
+//                Reg argreg = Reg.arg(x);
+//                code.instructions.add(
+//                        new Inst(Inst.Type.IDtoREG, argreg, "_arg_" + x)
+//                );
+//            }
+//            argsrestore.clear();
         }
         for (int i = 0; i < maxsave; i++) {
             code.instructions.add(
@@ -248,6 +307,12 @@ public class RegisterAllocator extends DepthFirstVisitor {
             }
             i++;
         }
+        for ( String id : args ) {
+            Reg reg = where.get(id);
+            if ( !reg.equals(Reg.STACK) ) {
+                code.instructions.add(new Inst(Inst.Type.REGtoID, reg, id));
+            }
+        }
         EnumMap<Reg, String> temp_restore1 = new EnumMap<>(Reg.class);
         EnumMap<Reg, Reg> temp_restore2 = new EnumMap<>(Reg.class);
         int j = 0;
@@ -284,6 +349,12 @@ public class RegisterAllocator extends DepthFirstVisitor {
             String str = "_temp_"+j;
             where.remove(str);
         }
+//        for ( String id : args ) {
+//            Reg reg = where.get(id);
+//            if ( !reg.equals(Reg.STACK) ) {
+//                code.instructions.add(new Inst(Inst.Type.IDtoREG, reg, id));
+//            }
+//        }
     }
 
 }

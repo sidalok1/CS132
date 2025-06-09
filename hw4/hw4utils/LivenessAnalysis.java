@@ -7,7 +7,7 @@ import IR.visitor.GJNoArguDepthFirst;
 import java.util.*;
 
 public class LivenessAnalysis extends DepthFirstVisitor {
-    private static final int LabelWithColon = 0, SetInteger = 1, SetFuncName = 2, Add = 3, Subtract = 4, Multiply = 5,
+    public static final int LabelWithColon = 0, SetInteger = 1, SetFuncName = 2, Add = 3, Subtract = 4, Multiply = 5,
             LessThan = 6, Load = 7, Store = 8, Move = 9, Alloc = 10, Print = 11, ErrorMessage = 12, Goto = 13,
             IfGoto = 14, Call = 15;
 
@@ -146,12 +146,28 @@ public class LivenessAnalysis extends DepthFirstVisitor {
     ArrayList<TreeSet<String>> out;
     ArrayList<TreeSet<String>> in_ = null;
     ArrayList<TreeSet<String>> out_ = null;
+    public EnumSet<Reg> args_overridden;
     public LinkedHashSet<String> use(int time) { return use.get(time - 1); }
-    ArrayList<int[]> succ;
+    public Integer timeof(Instruction i) { return block.indexOf(i) + 1; }
+    LinkedHashMap<Instruction, ArrayList<Instruction>> succ;
     ArrayList<Instruction> block;
     TreeSet<Interval> intervals; // closest thing java collections has to sorted list
     public TreeSet<Interval> intervals() { return intervals; }
     HashMap<String, boolean[]> intervalMap;
+    LinkedHashMap<Instruction, TreeSet<Interval>> liveAtInstruction = new LinkedHashMap<Instruction, TreeSet<Interval>>();
+    public LinkedHashMap<Instruction, TreeSet<Interval>> getLiveAtInstruction() {
+        for ( int i = 0; i < block.size(); i++ ) {
+            Instruction inst = block.get(i);
+            TreeSet<Interval> this_intervals = new TreeSet<>(new IntervalComparator(IntervalComparator.Type.LENGTH));
+            liveAtInstruction.put(inst, this_intervals);
+            for ( Interval ivl : intervals ) {
+                if ( ivl.start <= i && i < ivl.stop ) {
+                    this_intervals.add(ivl);
+                }
+            }
+        }
+        return liveAtInstruction;
+    }
     public LivenessAnalysis(FunctionDeclaration f) {
         this.size = f.f5.f0.nodes.size() + 1;
         this.init();
@@ -191,15 +207,38 @@ public class LivenessAnalysis extends DepthFirstVisitor {
             lifetime[i + 1] = live;
             if (live) { intervals.add(new Interval(start, i+2, s)); }
         }
+        // maybe check here for how many saved regs needed in call
     }
 
     public int LinearScan(List<String> args) {
+        TreeSet<Interval> _intervals = new TreeSet<>(new IntervalComparator(IntervalComparator.Type.START));
+        _intervals.addAll(intervals);
         TreeSet<Interval> active = new TreeSet<>(new IntervalComparator(IntervalComparator.Type.LENGTH));
         EnumSet<Reg> regs = EnumSet.noneOf(Reg.class),
                 temp_regs = EnumSet.copyOf(Reg.tempset),
-                save_regs = EnumSet.copyOf(Reg.saveset);
-        int max = 0;
-        for ( Interval i : intervals ) {
+                save_regs = EnumSet.copyOf(Reg.saveset),
+                allowed = EnumSet.copyOf(Reg.tempset); allowed.addAll(Reg.saveset);
+        for ( String arg : args ) {
+            Reg r = Reg.STACK;
+            for (Reg reg : allowed) {
+                if ( !regs.contains(reg) ) {
+                    r = reg;
+                    regs.add(reg);
+                    break;
+                }
+            }
+            for ( Interval i : intervals ) {
+                if ( i.id.equals(arg) ) {
+                    i.reg = r;
+                    _intervals.remove(i);
+                    active.add(i);
+                    break;
+                }
+            }
+        }
+        EnumSet<Reg> saved_used = EnumSet.copyOf(regs); saved_used.retainAll(save_regs);
+        int max = saved_used.size();
+        for ( Interval i : _intervals ) {
             TreeSet<Interval> toRemove = new TreeSet<>(new IntervalComparator(IntervalComparator.Type.LENGTH));
             for ( Interval o : active ) {
                 if ( o.stop <= i.start ) {
@@ -208,41 +247,56 @@ public class LivenessAnalysis extends DepthFirstVisitor {
                 }
             }
             active.removeAll(toRemove);
-            if ( args.contains(i.id) ) {
-                i.reg = Reg.arg(args.indexOf(i.id));
-            }
-            else if ( !regs.containsAll(temp_regs) ) {
-            for ( Reg r : temp_regs ) {
-                if ( !regs.contains(r) ) {
-                    regs.add(r);
-                    i.reg = r;
-                    break;
+            // maybe check how many active regs need to be saved if call
+
+//            if ( args.contains(i.id) ) {
+//                i.reg = Reg.arg(args.indexOf(i.id));
+//            }
+//            else
+            if ( !regs.containsAll(temp_regs) ) {
+                for ( Reg r : temp_regs ) {
+                    if ( !regs.contains(r) ) {
+                        regs.add(r);
+                        i.reg = r;
+                        break;
+                    }
                 }
-            }
-            active.add(i);
+                active.add(i);
             }
             else if ( !regs.containsAll(save_regs) ) {
-            int idx = 0;
-            for ( Reg r : save_regs ) {
-                if ( !regs.contains(r) ) {
-                    max = Math.max(max, idx);
-                    regs.add(r);
-                    i.reg = r;
-                    break;
+                int idx = 0;
+                for ( Reg r : save_regs ) {
+                    if ( !regs.contains(r) ) {
+                        max = Math.max(max, idx);
+                        regs.add(r);
+                        i.reg = r;
+                        break;
+                    }
+                    idx++;
                 }
-                idx++;
-            }
-            active.add(i);
+                active.add(i);
             }
             else {
                 i.reg = Reg.STACK; // spill
             }
         }
-        for ( Instruction i : block ) {
-
+        ParamCounter pc = new ParamCounter();
+        int countmax = 0;
+        for ( Instruction i : block ) { // maybe check for how many saved regs needed for call
+            Integer n = i.accept(pc);
+            if ( n != null ) {
+                int t = timeof(i);
+                int count = 0;
+                for ( Interval o : intervals ) {
+                    if ( t > o.start && t < o.stop
+                            && (Reg.tempset.contains(o.reg) || Reg.argset.contains(o.reg)) ) {
+                        count++;
+                    }
+                }
+                countmax = Math.max(count, countmax);
+            }
         }
-        Integer maxparams = (new ParamCounter()).count(this.block);
-        return Math.min(max + maxparams, Reg.saved);
+        return Math.min(max + countmax, Reg.saved);
     }
     private static class ParamCounter extends GJNoArguDepthFirst<Integer> {
         public Integer count(List<Instruction> nodes) {
@@ -274,7 +328,7 @@ public class LivenessAnalysis extends DepthFirstVisitor {
         def = new ArrayList<>(this.size);
         in = new ArrayList<TreeSet<String>>(this.size);
         out = new ArrayList<TreeSet<String>>(this.size);
-        succ = new ArrayList<>(this.size);
+        succ = new LinkedHashMap<>();
         in_ = null;
         out_ = null;
         for (int i = 0; i < this.size; i++) {
@@ -289,7 +343,8 @@ public class LivenessAnalysis extends DepthFirstVisitor {
         ArrayList<Instruction> rev = new ArrayList<>(this.block); Collections.reverse(rev);
         for ( Instruction n : rev ) {
             Set<String> succ_in = new LinkedHashSet<>();
-            Instruction[] successors = this.succ(n);
+//            Instruction[] successors = this.succ(n);
+            ArrayList<Instruction> successors = this.succ(n);
             for ( Instruction s : successors ) {
                 succ_in = this.union(succ_in, this.in(s));
             }
@@ -322,14 +377,15 @@ public class LivenessAnalysis extends DepthFirstVisitor {
         return in.equals(in_) && out.equals(out_);
     }
 
-    private Instruction[] succ(Instruction n) {
-        int[] arr1 = this.succ.get(this.block.indexOf(n));
-        Instruction[] arr2 = new Instruction[arr1.length];
-        for ( int i = 0; i < arr1.length; i++ ) {
-            int idx = arr1[i];
-            arr2[i] = (idx >= this.block.size()) ? null : this.block.get(idx);
-        }
-        return arr2;
+    private ArrayList<Instruction> succ(Instruction n) {
+//        int[] arr1 = this.succ.get(this.block.indexOf(n));
+//        Instruction[] arr2 = new Instruction[arr1.length];
+//        for ( int i = 0; i < arr1.length; i++ ) {
+//            int idx = arr1[i];
+//            arr2[i] = (idx >= this.block.size()) ? null : this.block.get(idx);
+//        }
+//        return arr2;
+        return succ.get(n);
     }
 
     public LinkedHashSet<String> use(Instruction n) {
@@ -375,8 +431,41 @@ public class LivenessAnalysis extends DepthFirstVisitor {
         for (Node i : n.f0.nodes) {
             i.accept(this);
         }
+        LabelVisitor lv = new LabelVisitor();
         for (Instruction i : this.block) {
-            succ.add(findSuccessor(i));
+            ArrayList<Instruction> successors = new ArrayList<>();
+            int idx = this.block.indexOf(i);
+            String label;
+            switch (i.f0.which) {
+                case ErrorMessage:
+                    break;
+                case Goto:
+                    label = i.accept(lv);
+                    for (Instruction j : this.block) {
+                        if (j.f0.which == LabelWithColon && j.accept(lv).equals(label)) {
+                            successors.add(j);
+                            break;
+                        }
+                    }
+                    break;
+                case IfGoto:
+                    label = i.accept(lv);
+                    for (Instruction j : this.block) {
+                        if (j.f0.which == LabelWithColon && j.accept(lv).equals(label)) {
+                            successors.add(j);
+                            break;
+                        }
+                    }
+                default:
+                    for ( int jdx = 0; jdx < this.block.size(); jdx++) {
+                        if (jdx == idx + 1) {
+                            Instruction j = this.block.get(jdx);
+                            successors.add(j);
+                        }
+                    }
+                    break;
+            }
+            succ.put(i, successors);
         }
     }
 
