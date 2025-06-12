@@ -100,18 +100,18 @@ public class LivenessAnalysis implements Visitor {
             int start = 0;
             int end = this.size;
             for ( int i = 0; i < this.size; i++ ) {
-                if ( comp.containedIn(id, this.use.get(i)) ) {
+                if ( comp.containedIn(id, this.out.get(i)) ) {
                     end = i;
                 }
             }
             for ( int i = 0; i < this.size; i++ ) {
-                if ( comp.equals(id, this.def.get(i)) ) {
+                if ( comp.containedIn(id, this.out.get(i)) ) {
                     start = i;
                     break;
                 }
             }
             if ( comp.equals(this.ret, id) ) { end = this.size; }
-            intervals.add(new Interval(start, end, id));
+            intervals.add(new Interval(start, end+1, id));
         }
     }
     private void generateIntervals() {

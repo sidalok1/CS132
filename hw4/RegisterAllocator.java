@@ -48,8 +48,8 @@ public class RegisterAllocator implements Visitor {
     TreeMap<Identifier, Reg> where;
     private Reg assign(Identifier id) {
         Reg r = null;
-        if ( !where.values().containsAll(Reg.tempset) ) {
-            for ( Reg t : Reg.tempset ) {
+        if ( !where.values().containsAll(EnumSet.of(Reg.t2, Reg.t3, Reg.t4, Reg.t5)) ) {
+            for ( Reg t : EnumSet.of(Reg.t2, Reg.t3, Reg.t4, Reg.t5) ) {
                 if (!where.containsValue(t)) {
                     r = t;
                     break;
@@ -93,6 +93,16 @@ public class RegisterAllocator implements Visitor {
     Reg rs1, rs2;
     ArrayList<Identifier> callArgs;
     private class ReadVisitor implements Visitor {
+        public Reg read(Identifier id, int i) {
+            Reg r = where.get(id);
+            if ( r == Reg.STACK ) {
+                Reg t = i == 0 ? Reg.t0 : Reg.t1;
+                code.add( new Inst(t, mangle(id)));
+                return t;
+            } else {
+                return r;
+            }
+        }
         public Reg read(Identifier id) {
             assert (where.containsKey(id));
             Reg r = where.get(id);
@@ -116,8 +126,8 @@ public class RegisterAllocator implements Visitor {
         public void visit(Program p) {}
         public void visit(FunctionDecl n) {}
         public void visit(Block n) {}
-        public void visit(Add n) { rs1 = read(n.arg1); rs2 = read(n.arg2); }
-        public void visit(Alloc n) { rs1 = read(n.size); }
+        public void visit(Add n) { rs1 = read(n.arg1, 0); rs2 = read(n.arg2, 1); }
+        public void visit(Alloc n) { rs1 = read(n.size, 0); }
         public void visit(Call n) {
             ArrayList<Identifier> parameters = new ArrayList<>(n.args);
             for ( int i = 0 ; i < parameters.size() ; i++ ) {
@@ -132,7 +142,7 @@ public class RegisterAllocator implements Visitor {
                     code.add(new Inst(arg, loc, true));
                 }
             }
-            rs1 = read(n.callee);
+            rs1 = read(n.callee, 0);
             if ( parameters.size() > 6) {
                 callArgs = new ArrayList<>(parameters.size()-6);
                 parameters.subList(6, parameters.size()).forEach(id -> callArgs.add(mangle(id)));
@@ -142,17 +152,17 @@ public class RegisterAllocator implements Visitor {
         }
         public void visit(ErrorMessage n) {}
         public void visit(Goto n) {}
-        public void visit(IfGoto n) { rs1 = read(n.condition); }
+        public void visit(IfGoto n) { rs1 = read(n.condition, 0); }
         public void visit(LabelInstr n) {}
-        public void visit(LessThan n) { rs1 = read(n.arg1); rs2 = read(n.arg2); }
-        public void visit(Load n) { rs1 = read(n.base); }
+        public void visit(LessThan n) { rs1 = read(n.arg1, 0); rs2 = read(n.arg2, 1); }
+        public void visit(Load n) { rs1 = read(n.base, 0); }
         public void visit(Move_Id_FuncName n) {}
-        public void visit(Move_Id_Id n) { rs1 = read(n.rhs); }
+        public void visit(Move_Id_Id n) { rs1 = read(n.rhs, 0); }
         public void visit(Move_Id_Integer n) {}
-        public void visit(Multiply n) { rs1 = read(n.arg1); rs2 = read(n.arg2); }
+        public void visit(Multiply n) { rs1 = read(n.arg1, 0); rs2 = read(n.arg2, 1); }
         public void visit(Print n) { rs1 = read(n.content); }
-        public void visit(Store n) { rs1 = read(n.base); rs2 = read(n.rhs); }
-        public void visit(Subtract n) { rs1 = read(n.arg1); rs2 = read(n.arg2); }
+        public void visit(Store n) { rs1 = read(n.base, 0); rs2 = read(n.rhs, 1); }
+        public void visit(Subtract n) { rs1 = read(n.arg1, 0); rs2 = read(n.arg2, 1); }
     }
     ReadVisitor read = new ReadVisitor();
     TreeSet<Interval> active;
@@ -206,18 +216,33 @@ public class RegisterAllocator implements Visitor {
         code.returnID = mangle(ret);
     }
     public void visit(Add n) {
-        if (where.get(n.lhs) != null)
-            code.add(new Inst(where.get(n.lhs), rs1, rs2, Inst.Arith.add));
+        Reg rd = where.get(n.lhs);
+        if (where.get(n.lhs) != null) {
+            if ( rd == Reg.STACK ) {
+                code.add(new Inst(Reg.t0, rs1, rs2, Inst.Arith.add));
+                code.add(new Inst(mangle(n.lhs), Reg.t0));
+            } else {
+                code.add(new Inst(where.get(n.lhs), rs1, rs2, Inst.Arith.add));
+            }
+        }
     }
     public void visit(Alloc n) {
-        if (where.get(n.lhs) != null)
-            code.add(new Inst(where.get(n.lhs), rs1, false));
+        Reg rd = where.get(n.lhs);
+        if (where.get(n.lhs) != null) {
+            if ( rd == Reg.STACK ) {
+                code.add(new Inst(Reg.t0, rs1, false));
+                code.add(new Inst(mangle(n.lhs), Reg.t0));
+            } else {
+                code.add(new Inst(where.get(n.lhs), rs1, false));
+            }
+        }
     }
     HashMap<Identifier, Reg> saved = new HashMap<>() ;
+    LivenessAnalysis.IDComparator comp = new LivenessAnalysis.IDComparator();
     private void saveAllExcept(Identifier ignore) {
         saved.clear();
         for ( Map.Entry<Identifier, Reg> e : where.entrySet() ) {
-            if ( Reg.tempset.contains(e.getValue()) && e.getKey().toString().compareTo(ignore.toString()) != 0 ) {
+            if ( EnumSet.of(Reg.t2, Reg.t3, Reg.t4, Reg.t5).contains(e.getValue()) && !comp.equals(e.getKey(), ignore) ) {
                 saved.put(e.getKey(), e.getValue());
                 if ( Reg.saveset.containsAll(where.values()) ) {
                     code.add(new Inst(mangle(e.getKey()), e.getValue()));
@@ -251,9 +276,15 @@ public class RegisterAllocator implements Visitor {
         }
     }
     public void visit(Call n) {
+        Reg rd = where.get(n.lhs);
         if (where.get(n.lhs) != null) {
             saveAllExcept(n.lhs);
-            code.add(new Inst(where.get(n.lhs), rs1, callArgs));
+            if ( rd == Reg.STACK ) {
+                code.add(new Inst(Reg.t0, rs1, callArgs));
+                code.add(new Inst(mangle(n.lhs), Reg.t0));
+            } else {
+                code.add(new Inst(where.get(n.lhs), rs1, callArgs));
+            }
             restore();
         }
     }
@@ -270,28 +301,70 @@ public class RegisterAllocator implements Visitor {
         code.add(new Inst(n.label, false));
     }
     public void visit(LessThan n) {
-        if (where.get(n.lhs) != null)
-            code.add(new Inst(where.get(n.lhs), rs1, rs2, Inst.Arith.les));
+        Reg rd = where.get(n.lhs);
+        if (where.get(n.lhs) != null) {
+            if ( rd == Reg.STACK ) {
+                code.add(new Inst(Reg.t0, rs1, rs2, Inst.Arith.les));
+                code.add(new Inst(mangle(n.lhs), Reg.t0));
+            } else {
+                code.add(new Inst(where.get(n.lhs), rs1, rs2, Inst.Arith.les));
+            }
+        }
     }
     public void visit(Load n) {
-        if (where.get(n.lhs) != null)
-            code.add(new Inst(where.get(n.lhs), rs1, n.offset));
+        Reg rd = where.get(n.lhs);
+        if (where.get(n.lhs) != null) {
+            if ( rd == Reg.STACK ) {
+                code.add(new Inst(Reg.t0, rs1, n.offset));
+                code.add(new Inst(mangle(n.lhs), Reg.t0));
+            } else {
+                code.add(new Inst(where.get(n.lhs), rs1, n.offset));
+            }
+        }
     }
     public void visit(Move_Id_FuncName n) {
-        if (where.get(n.lhs) != null)
-            code.add(new Inst(where.get(n.lhs), n.rhs));
+        Reg rd = where.get(n.lhs);
+        if (where.get(n.lhs) != null) {
+            if ( rd == Reg.STACK ) {
+                code.add(new Inst(Reg.t0, n.rhs));
+                code.add(new Inst(mangle(n.lhs), Reg.t0));
+            } else {
+                code.add(new Inst(where.get(n.lhs), n.rhs));
+            }
+        }
     }
     public void visit(Move_Id_Id n) {
-        if (where.get(n.lhs) != null)
-            code.add(new Inst(where.get(n.lhs), rs1, true));
+        Reg rd = where.get(n.lhs);
+        if (where.get(n.lhs) != null) {
+            if ( rd == Reg.STACK ) {
+                code.add(new Inst(Reg.t0, rs1, true));
+                code.add(new Inst(mangle(n.lhs), Reg.t0));
+            } else {
+                code.add(new Inst(where.get(n.lhs), rs1, true));
+            }
+        }
     }
     public void visit(Move_Id_Integer n) {
-        if (where.get(n.lhs) != null)
-            code.add(new Inst(where.get(n.lhs), n.rhs));
+        Reg rd = where.get(n.lhs);
+        if (where.get(n.lhs) != null) {
+            if ( rd == Reg.STACK ) {
+                code.add(new Inst(Reg.t0, n.rhs));
+                code.add(new Inst(mangle(n.lhs), Reg.t0));
+            } else {
+                code.add(new Inst(where.get(n.lhs), n.rhs));
+            }
+        }
     }
     public void visit(Multiply n) {
-        if (where.get(n.lhs) != null)
-            code.add(new Inst(where.get(n.lhs), rs1, rs2, Inst.Arith.mul));
+        Reg rd = where.get(n.lhs);
+        if (where.get(n.lhs) != null) {
+            if ( rd == Reg.STACK ) {
+                code.add(new Inst(Reg.t0, rs1, rs2, Inst.Arith.mul));
+                code.add(new Inst(mangle(n.lhs), Reg.t0));
+            } else {
+                code.add(new Inst(where.get(n.lhs), rs1, rs2, Inst.Arith.mul));
+            }
+        }
     }
     public void visit(Print n) {
         code.add(new Inst(rs1));
@@ -300,8 +373,15 @@ public class RegisterAllocator implements Visitor {
         code.add(new Inst(rs1, n.offset, rs2));
     }
     public void visit(Subtract n) {
-        if (where.get(n.lhs) != null)
-            code.add(new Inst(where.get(n.lhs), rs1, rs2, Inst.Arith.sub));
+        Reg rd = where.get(n.lhs);
+        if (where.get(n.lhs) != null) {
+            if ( rd == Reg.STACK ) {
+                code.add(new Inst(Reg.t0, rs1, rs2, Inst.Arith.sub));
+                code.add(new Inst(mangle(n.lhs), Reg.t0));
+            } else {
+                code.add(new Inst(where.get(n.lhs), rs1, rs2, Inst.Arith.sub));
+            }
+        }
     }
 
 }
