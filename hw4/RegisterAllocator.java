@@ -1,10 +1,11 @@
-import IR.syntaxtree.*;
-import IR.visitor.*;
+import IR.token.Identifier;
+import sparrow.*;
+import sparrow.visitor.*;
 import hw4utils.*;
 
 import java.util.*;
 
-public class RegisterAllocator extends DepthFirstVisitor {
+public class RegisterAllocator implements Visitor {
 
     public Prog program;
 
@@ -14,347 +15,293 @@ public class RegisterAllocator extends DepthFirstVisitor {
 
     public RegisterAllocator(Program p) {
         program = new Prog();
-        for ( Node n : p.f0.nodes) {
+        for ( FunctionDecl n : p.funDecls) {
             n.accept(this);
         }
     }
 
     private String id;
     private String label;
-    public void visit(FunctionName n) {
-        String fname = n.f0.tokenImage;
-    }
-    private ArrayList<String> params = null;
+    private ArrayList<Identifier> params = null;
     private CodeBlock code;
     LivenessAnalysis analysis;
 
-    private static class InstructionVisitor extends GJNoArguDepthFirst<ArrayList<Instruction>> {
-        ArrayList<Instruction> instructions;
-        public ArrayList<Instruction> visit(Instruction n) { instructions.add(n); return null; }
-        public ArrayList<Instruction> visit(Block n) {
-            instructions = new ArrayList<>(n.f0.nodes.size());
-            n.f0.accept(this);
-            return instructions;
-        }
+    public void visit(Program n) {
+        program = new Prog();
+        n.funDecls.forEach(f -> f.accept(this));
     }
-    Reg rd, rs1, rs2;
-    HashMap<String, Reg> where;
-    public static class ParVisitor extends GJNoArguDepthFirst<String> {
-        public String visit(Call n) { return n.f3.f0.tokenImage; }
-    }
-    public static class ArgVisitor extends GJNoArguDepthFirst<ArrayList<String>> {
-        public ArrayList<String> visit(Identifier n) { return new ArrayList<>(Collections.singletonList(n.f0.tokenImage)); }
-        public ArrayList<String> visit(Call n) {
-            ArrayList<String> args = new ArrayList<>();
-            for (Node i : n.f5.nodes) {
-                args.addAll(i.accept(this));
-            }
-            return args;
-        }
-    }
-
-    public void visit(Block n) {
-        ArrayList<String> parameters = new ArrayList<>(params);
-        int maxsave = analysis.LinearScan(parameters);
-        for (int i = 0; i < maxsave; i++) {
-            code.instructions.add(
-                    new Inst(Inst.Type.REGtoID, Reg.save(i), "_saved_"+i)
-            );
-        }
-        LinkedList<Interval> intervals = new LinkedList<>(analysis.intervals());
-        LinkedList<Interval> active = new LinkedList<>();
-        ArrayList<Instruction> instructions = n.accept(new InstructionVisitor());
-        where = new HashMap<>();
-        //
-        for ( Instruction i : instructions ) {
-            int time = instructions.indexOf(i)+1;
-            LinkedList<Interval> toRemove = new LinkedList<>();
-            for ( Interval t : active) {
-                if (t.stop < time) {
-                    where.remove(t.id);
-                    toRemove.add(t);
-                }
-            }
-            active.removeAll(toRemove);
-            intervals.removeAll(toRemove);
-            for ( Interval t : intervals ) {
-                if (t.start <= time && !active.contains(t)) {
-                    where.put(t.id, t.reg);
-                    if ( parameters.contains(t.id) && !(t.reg == Reg.STACK) ) {
-                        parameters.remove(t.id);
-                        int idx = params.indexOf(t.id);
-                        if ( idx < 6 ) {
-                            code.instructions.add(
-                                    new Inst(Inst.Type.REG, t.reg, Reg.arg(idx))
-                            );
-                        } else {
-                            code.instructions.add(
-                                    new Inst(Inst.Type.IDtoREG, t.reg, t.id)
-                            );
-                        }
-                    }
-                    active.add(t);
-                }
-            }
-            String s1;
-            String s2;
-            Iterator<String> _t;
-            ArrayList<Integer> argsrestore = new ArrayList<>(Reg.args);
-            if (i.f0.which == LivenessAnalysis.Call) {
-                s1 = i.f0.choice.accept(new ParVisitor());
-                s2 = null;
-                ArrayList<String> args = i.f0.choice.accept(new ArgVisitor());
-                if ( args != null ) {
-//                    for (int x = 0; x < Math.min(args.size(), Reg.args); x++) {
-//                        Reg argreg = Reg.arg(x);
-//                        argsrestore.add(x);
-//                        code.instructions.add(
-//                                new Inst(Inst.Type.REGtoID, argreg, "_arg_" + x)
-//                        );
-//                    }
-
-                }
-            } else {
-                _t = analysis.use(i).iterator();
-                s1 = (_t.hasNext()) ? _t.next() : null;
-                s2 = (_t.hasNext()) ? _t.next() : null;
-            }
-
-            boolean restore1 = false;
-            boolean restore2 = false;
-            if ( s1 != null ) {
-                rs1 = where.get(s1);
-                if ( rs1.equals(Reg.STACK) ) {
-                    if (where.containsValue(Reg.reserve(0))) {
-                        restore1 = true;
-                        code.instructions.add(
-                                new Inst(Inst.Type.REGtoID, Reg.reserve(0), "_restore_0")
-                        );
-                    }
-                    code.instructions.add(
-                            new Inst(Inst.Type.IDtoREG, Reg.reserve(0), s1)
-                    );
-                    rs1 = Reg.reserve(0);
-                }
-            }
-            if ( s2 != null ) {
-                rs2 = where.get(s2);
-                if ( rs2.equals(Reg.STACK) ) {
-                    if (where.containsValue(Reg.reserve(1))) {
-                        restore2 = true;
-                        code.instructions.add(
-                                new Inst(Inst.Type.REGtoID, Reg.reserve(1), "_restore_1")
-                        );
-                    }
-                    code.instructions.add(
-                            new Inst(Inst.Type.IDtoREG, Reg.reserve(1), s2)
-                    );
-                    rs2 = Reg.reserve(1);
-                }
-            }
-            _t = analysis.def(i).iterator();
-            String def = (_t.hasNext()) ? _t.next() : null;
-            boolean writeback = false;
-            if ( def != null ) {
-                rd = where.get(def); if (rd == null) { rd = Reg.STACK; }
-                if ( rd.equals(Reg.STACK) ) {
-                    if (!restore1 && where.containsValue(Reg.reserve(0))) {
-                        restore1 = true;
-                        code.instructions.add(
-                                new Inst(Inst.Type.REGtoID, Reg.reserve(0), "_restore_0")
-                        );
-                    }
-                    writeback = true;
-                    rd = Reg.reserve(0);
-                }
-            }
-            i.f0.choice.accept(this);
-            if ( writeback ) {
-                code.instructions.add(
-                        new Inst(Inst.Type.REGtoID, Reg.reserve(0), def)
-                );
-            }
-            if ( restore1 ) {
-                code.instructions.add(
-                        new Inst(Inst.Type.IDtoREG, Reg.reserve(0), "_restore_0")
-                );
-            }
-            if ( restore2 ) {
-                code.instructions.add(
-                        new Inst(Inst.Type.IDtoREG, Reg.reserve(1), "_restore_1")
-                );
-            }
-//            for ( Integer x : argsrestore ) {
-//                Reg argreg = Reg.arg(x);
-//                code.instructions.add(
-//                        new Inst(Inst.Type.IDtoREG, argreg, "_arg_" + x)
-//                );
-//            }
-//            argsrestore.clear();
-        }
-        for (int i = 0; i < maxsave; i++) {
-            code.instructions.add(
-                    new Inst(Inst.Type.IDtoREG, Reg.save(i), "_saved_"+i)
-            );
-        }
-        String ret = n.f2.f0.tokenImage;
-        Reg r = where.get(ret);
-        if ( !r.equals(Reg.STACK) ) {
-            code.instructions.add(new Inst(Inst.Type.REGtoID, r, ret));
-        }
-        code.returnID = ret;
-    }
-
-
-
-    public void visit(Identifier n) { id = n.f0.tokenImage; }
-
-    public void visit(FunctionDeclaration n) {
-        code = new CodeBlock();
-        where = new HashMap<>();
-        int instructionCount = 1 + n.f5.f0.nodes.size();
-        params = new ArrayList<>(n.f3.nodes.size());
-        for ( Node i : n.f3.nodes ) { i.accept(this); params.add(id); }
-        String fname = n.f1.f0.tokenImage;
+    FunDecl fun;
+    boolean isMain;
+    public void visit(FunctionDecl n) {
         analysis = new LivenessAnalysis(n);
-        n.f5.accept(this);
-        int argpos = Math.min(params.size(), 6);
-        params.subList(0, argpos).clear();
-        program.functions.add(new FunDecl(fname, params, code));
-    }
-
-    public void visit(Label n) { label = n.f0.tokenImage; }
-    public void visit(LabelWithColon n) {
-        n.f0.accept(this);
-        code.instructions.add(new Inst(Inst.Type.LABEL, label));
-    }
-
-    public void visit(SetInteger n) {
-        code.instructions.add(new Inst(Inst.Type.INT, rd, n.f2.f0.tokenImage));
-    }
-
-    public void visit(SetFuncName n) {
-        code.instructions.add(new Inst(Inst.Type.FUNC, rd, n.f3.f0.tokenImage));
-    }
-
-    public void visit(Add n) {
-        code.instructions.add(new Inst(Inst.Type.ADD, rd, rs1, rs2));
-    }
-    public void visit(Subtract n) {
-        code.instructions.add(new Inst(Inst.Type.SUB, rd, rs1, rs2));
-    }
-    public void visit(Multiply n) {
-        code.instructions.add(new Inst(Inst.Type.MULT, rd, rs1, rs2));
-    }
-    public void visit(LessThan n) {
-        code.instructions.add(new Inst(Inst.Type.LESS, rd, rs1, rs2));
-    }
-
-    public void visit(Load n) {
-        int imm = Integer.parseInt(n.f5.f0.tokenImage);
-        code.instructions.add(new Inst(rd, rs1, imm));
-    }
-
-    public void visit(Store n) {
-        int imm = Integer.parseInt(n.f3.f0.tokenImage);
-        code.instructions.add(new Inst(rs1, imm, rs2));
-    }
-
-    public void visit(Move n) {
-        code.instructions.add(new Inst(Inst.Type.REG, rd, rs1));
-    }
-
-    public void visit(Alloc n) {
-        code.instructions.add(new Inst(Inst.Type.ALLOC, rd, rs1));
-    }
-
-    public void visit(Print n) {
-        code.instructions.add(new Inst(rs1));
-    }
-
-    public void visit(ErrorMessage n) {
-        String msg = n.f2.f0.tokenImage;
-        code.instructions.add(new Inst(Inst.Type.ERROR, msg));
-    }
-
-    public void visit(Goto n) {
-        code.instructions.add(new Inst(Inst.Type.GOTO, n.f1.f0.tokenImage));
-    }
-
-    public void visit(If n) {
-        String l = n.f3.f0.tokenImage;
-        code.instructions.add(new Inst(Inst.Type.IF0, rs1, l));
-    }
-    public void visit(IfGoto n) {
-        String l = n.f3.f0.tokenImage;
-        code.instructions.add(new Inst(Inst.Type.IF0, rs1, l));
-    }
-
-    public void visit(Call n) {
-        LinkedList<String> args = new LinkedList<>();
-        for ( Node i : n.f5.nodes ) {
-            i.accept(this);
-            args.add(id);
+        params = new ArrayList<>(n.formalParameters);
+        ArrayList<Identifier> ids = new ArrayList<>();
+        if (params.size() > 6) {
+            params.subList(6, params.size()).forEach(id -> ids.add(mangle(id)));
         }
-        int i = 0;
-        while ( !args.isEmpty() && i < 6 ) {
-            String arg = args.pollFirst();
-            Reg reg = where.get(arg);
-            if ( reg.equals(Reg.STACK) ) {
-                code.instructions.add(new Inst(Inst.Type.IDtoREG, Reg.arg(i), arg));
+        isMain = n.parent.funDecls.indexOf(n) == 0;
+        n.block.accept(this);
+        fun = new FunDecl(n.functionName, ids, code);
+        program.functions.add(fun);
+    }
+    EnumSet<Reg> usedSaveRegister;
+    TreeMap<Identifier, Reg> where;
+    private Reg assign(Identifier id) {
+        Reg r = null;
+        if ( !where.values().containsAll(Reg.tempset) ) {
+            for ( Reg t : Reg.tempset ) {
+                if (!where.containsValue(t)) {
+                    r = t;
+                    break;
+                }
+            }
+        } else if ( !where.values().containsAll(Reg.saveset) ) {
+            for ( Reg s : Reg.saveset ) {
+                if (!where.containsValue(s)) {
+                    usedSaveRegister.add(s);
+                    r = s;
+                    break;
+                }
+            }
+        } else {
+            for ( Interval ivl : active ) {
+                if (ivl.start != time) {
+                    r = where.remove(ivl.id);
+                    code.add( new Inst(mangle(ivl.id), r) );
+                    where.put(ivl.id, Reg.STACK);
+                    break;
+                }
+            }
+        }
+        if ( where.containsKey(id) ) {
+            Reg source = where.remove(id);
+            assert ( Reg.argset.contains(source) || source == Reg.STACK );
+            if ( source == Reg.STACK ) {
+                code.add(new Inst(r, mangle(id)));
             } else {
-                code.instructions.add(new Inst(Inst.Type.REG, Reg.arg(i), reg));
-            }
-            i++;
-        }
-        for ( String id : args ) {
-            Reg reg = where.get(id);
-            if ( !reg.equals(Reg.STACK) ) {
-                code.instructions.add(new Inst(Inst.Type.REGtoID, reg, id));
+                code.add(new Inst(r, source, true));
             }
         }
-        EnumMap<Reg, String> temp_restore1 = new EnumMap<>(Reg.class);
-        EnumMap<Reg, Reg> temp_restore2 = new EnumMap<>(Reg.class);
-        int j = 0;
-        for ( Reg t : Reg.tempset ) {
-            if ( where.containsValue(t) && !t.equals(rd) ) { // t needs to be saved
-                String str = "_temp_"+j;
-                j++;
-                Reg loc = null;
-                if ( !where.values().containsAll(Reg.saveset) ) { // t can be save in regfile
+        assert ( r != null );
+        where.put(id, r);
+        return r;
+    }
+    private void remove(Identifier id) {
+        assert (where.containsKey(id));
+        where.remove(id);
+    }
+    Reg rs1, rs2;
+    ArrayList<Identifier> callArgs;
+    private class ReadVisitor implements Visitor {
+        public Reg read(Identifier id) {
+            assert (where.containsKey(id));
+            Reg r = where.get(id);
+            if ( r == Reg.STACK ) {
+                for ( Interval ivl : active ) {
+                    if ( ivl.start != time ) { // otherwise you'll evict a variable being defined
+                        r = where.remove(ivl.id);
+                        code.add( new Inst(mangle(ivl.id), r) );
+                        where.put(ivl.id, Reg.STACK);
+                        code.add( new Inst(r, mangle(id)) );
+                        where.put(id, r);
+                        return r;
+                    }
+                }
+            } else {
+                return r;
+            }
+            assert (false);
+            return null;
+        }
+        public void visit(Program p) {}
+        public void visit(FunctionDecl n) {}
+        public void visit(Block n) {}
+        public void visit(Add n) { rs1 = read(n.arg1); rs2 = read(n.arg2); }
+        public void visit(Alloc n) { rs1 = read(n.size); }
+        public void visit(Call n) {
+            ArrayList<Identifier> parameters = new ArrayList<>(n.args);
+            for ( int i = 0 ; i < parameters.size() ; i++ ) {
+                Identifier id = parameters.get(i);
+                Reg loc = where.get(id);
+                Reg arg = Reg.arg(i);
+                if ( arg == Reg.STACK && loc != Reg.STACK ) {
+                    code.add(new Inst(mangle(id), loc));
+                } else if ( arg != Reg.STACK && loc == Reg.STACK ) {
+                    code.add(new Inst(arg, mangle(id)));
+                } else if (arg != Reg.STACK) {
+                    code.add(new Inst(arg, loc, true));
+                }
+            }
+            rs1 = read(n.callee);
+            if ( parameters.size() > 6) {
+                callArgs = new ArrayList<>(parameters.size()-6);
+                parameters.subList(6, parameters.size()).forEach(id -> callArgs.add(mangle(id)));
+            } else {
+                callArgs = new ArrayList<>();
+            }
+        }
+        public void visit(ErrorMessage n) {}
+        public void visit(Goto n) {}
+        public void visit(IfGoto n) { rs1 = read(n.condition); }
+        public void visit(LabelInstr n) {}
+        public void visit(LessThan n) { rs1 = read(n.arg1); rs2 = read(n.arg2); }
+        public void visit(Load n) { rs1 = read(n.base); }
+        public void visit(Move_Id_FuncName n) {}
+        public void visit(Move_Id_Id n) { rs1 = read(n.rhs); }
+        public void visit(Move_Id_Integer n) {}
+        public void visit(Multiply n) { rs1 = read(n.arg1); rs2 = read(n.arg2); }
+        public void visit(Print n) { rs1 = read(n.content); }
+        public void visit(Store n) { rs1 = read(n.base); rs2 = read(n.rhs); }
+        public void visit(Subtract n) { rs1 = read(n.arg1); rs2 = read(n.arg2); }
+    }
+    ReadVisitor read = new ReadVisitor();
+    TreeSet<Interval> active;
+    int time;
+    private Identifier mangle(Identifier id) {
+        return new Identifier("_" + id.toString());
+    }
+    public void visit(Block n) {
+        code = new CodeBlock();
+        Identifier ret = n.return_id;
+        usedSaveRegister = EnumSet.noneOf(Reg.class);
+        this.where = new TreeMap<>(new LivenessAnalysis.IDComparator());
+        TreeSet<Interval> intervals = this.analysis.intervals;
+        active = new TreeSet<>(new IntervalComparator(IntervalComparator.Type.END));
+
+        for ( int i = 0; i < params.size(); i++) {
+            Identifier id = params.get(i);
+            where.put(id, Reg.arg(i));
+        }
+        for ( time = 0 ; time < n.instructions.size() ; time++ ) {
+            Instruction inst = n.instructions.get(time);
+            inst.accept(read);
+            List<Interval> activate = new ArrayList<>(), kill = new ArrayList<>() ;
+            for ( Interval ivl : this.active ) {
+                if ( ivl.stop == time ) {
+                    kill.add(ivl);
+                    this.remove(ivl.id);
+                }
+            }
+            this.active.removeAll(kill);
+            for ( Interval ivl : intervals ) {
+                if ( ivl.start == time ) {
+                    activate.add(ivl);
+                    this.assign(ivl.id);
+                }
+            }
+            this.active.addAll(activate);
+            intervals.removeAll(activate);
+            inst.accept(this);
+        }
+        if ( where.get(ret) != Reg.STACK ) {
+            code.add(new Inst(mangle(ret),where.get(ret)));
+        }
+        if ( !isMain ) {
+            for ( Reg s : usedSaveRegister ) {
+                Identifier save = new Identifier("save_" + s.name() );
+                code.front(new Inst(save, s));
+                code.back(new Inst(s, save));
+            }
+        }
+        code.returnID = mangle(ret);
+    }
+    public void visit(Add n) {
+        if (where.get(n.lhs) != null)
+            code.add(new Inst(where.get(n.lhs), rs1, rs2, Inst.Arith.add));
+    }
+    public void visit(Alloc n) {
+        if (where.get(n.lhs) != null)
+            code.add(new Inst(where.get(n.lhs), rs1, false));
+    }
+    HashMap<Identifier, Reg> saved = new HashMap<>() ;
+    private void saveAllExcept(Identifier ignore) {
+        saved.clear();
+        for ( Map.Entry<Identifier, Reg> e : where.entrySet() ) {
+            if ( Reg.tempset.contains(e.getValue()) && e.getKey().toString().compareTo(ignore.toString()) != 0 ) {
+                saved.put(e.getKey(), e.getValue());
+                if ( Reg.saveset.containsAll(where.values()) ) {
+                    code.add(new Inst(mangle(e.getKey()), e.getValue()));
+                    e.setValue(Reg.STACK);
+                } else {
                     for ( Reg s : Reg.saveset ) {
-                        if ( !where.containsValue(s) ) {
-                            where.put(str, s);
-                            loc = s;
+                        if ( !where.containsValue(s) && s != rs1 ) {
+                            usedSaveRegister.add(s);
+                            code.add(new Inst(s, e.getValue(), true));
+                            e.setValue(s);
                             break;
                         }
                     }
-                    code.instructions.add(new Inst(Inst.Type.REG, loc, t));
-                    temp_restore2.put(t, loc);
-                } else { // t must be put on stack
-                    temp_restore1.put(t, str);
-                    code.instructions.add(new Inst(Inst.Type.REGtoID, t, str));
                 }
             }
         }
-        code.instructions.add(new Inst(rd, rs1, args));
-        for ( Reg t : temp_restore1.keySet() ) {
-            code.instructions.add(new Inst(Inst.Type.IDtoREG, t, temp_restore1.get(t)));
+    }
+    private void restore () {
+        for ( Map.Entry<Identifier, Reg> e : saved.entrySet() ) {
+            Identifier id = e.getKey();
+            Reg save = where.remove(id);
+            Reg old = e.getValue();
+            if ( old == Reg.STACK && save != Reg.STACK ) {
+                code.add(new Inst(mangle(id), save));
+            } else if ( old != Reg.STACK && save != Reg.STACK ) {
+                code.add(new Inst(old, save, true));
+            } else if (old != Reg.STACK) {
+                code.add(new Inst(old, mangle(id)));
+            }
+            where.put(id, old);
         }
-        for ( Reg t : temp_restore2.keySet() ) {
-
-            code.instructions.add(new Inst(Inst.Type.REG, t, temp_restore2.get(t)));
+    }
+    public void visit(Call n) {
+        if (where.get(n.lhs) != null) {
+            saveAllExcept(n.lhs);
+            code.add(new Inst(where.get(n.lhs), rs1, callArgs));
+            restore();
         }
-        for ( ; j >= 0; j-- ) {
-            String str = "_temp_"+j;
-            where.remove(str);
-        }
-//        for ( String id : args ) {
-//            Reg reg = where.get(id);
-//            if ( !reg.equals(Reg.STACK) ) {
-//                code.instructions.add(new Inst(Inst.Type.IDtoREG, reg, id));
-//            }
-//        }
+    }
+    public void visit(ErrorMessage n) {
+        code.add(new Inst(n.msg));
+    }
+    public void visit(Goto n) {
+        code.add(new Inst(n.label, true));
+    }
+    public void visit(IfGoto n) {
+        code.add(new Inst(rs1, n.label));
+    }
+    public void visit(LabelInstr n) {
+        code.add(new Inst(n.label, false));
+    }
+    public void visit(LessThan n) {
+        if (where.get(n.lhs) != null)
+            code.add(new Inst(where.get(n.lhs), rs1, rs2, Inst.Arith.les));
+    }
+    public void visit(Load n) {
+        if (where.get(n.lhs) != null)
+            code.add(new Inst(where.get(n.lhs), rs1, n.offset));
+    }
+    public void visit(Move_Id_FuncName n) {
+        if (where.get(n.lhs) != null)
+            code.add(new Inst(where.get(n.lhs), n.rhs));
+    }
+    public void visit(Move_Id_Id n) {
+        if (where.get(n.lhs) != null)
+            code.add(new Inst(where.get(n.lhs), rs1, true));
+    }
+    public void visit(Move_Id_Integer n) {
+        if (where.get(n.lhs) != null)
+            code.add(new Inst(where.get(n.lhs), n.rhs));
+    }
+    public void visit(Multiply n) {
+        if (where.get(n.lhs) != null)
+            code.add(new Inst(where.get(n.lhs), rs1, rs2, Inst.Arith.mul));
+    }
+    public void visit(Print n) {
+        code.add(new Inst(rs1));
+    }
+    public void visit(Store n) {
+        code.add(new Inst(rs1, n.offset, rs2));
+    }
+    public void visit(Subtract n) {
+        if (where.get(n.lhs) != null)
+            code.add(new Inst(where.get(n.lhs), rs1, rs2, Inst.Arith.sub));
     }
 
 }

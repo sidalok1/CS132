@@ -1,373 +1,245 @@
 package hw4utils;
 
-import IR.syntaxtree.*;
-import IR.visitor.DepthFirstVisitor;
-import IR.visitor.GJNoArguDepthFirst;
+import IR.token.FunctionName;
+import IR.token.Identifier;
+import IR.token.*;
+import sparrow.*;
+import sparrow.visitor.*;
 
 import java.util.*;
 
-public class LivenessAnalysis extends DepthFirstVisitor {
-    public static final int LabelWithColon = 0, SetInteger = 1, SetFuncName = 2, Add = 3, Subtract = 4, Multiply = 5,
-            LessThan = 6, Load = 7, Store = 8, Move = 9, Alloc = 10, Print = 11, ErrorMessage = 12, Goto = 13,
-            IfGoto = 14, Call = 15;
-
-    static class DefVisitor extends GJNoArguDepthFirst<String> {
-        public String visit(SetInteger n) {
-            return n.f0.accept(this);
-        }
-        public String visit(SetFuncName n) {
-            return n.f0.accept(this);
-        }
-        public String visit(Add n) {
-            return n.f0.accept(this);
-        }
-        public String visit(Subtract n) {
-            return n.f0.accept(this);
-        }
-        public String visit(Multiply n) {
-            return n.f0.accept(this);
-        }
-        public String visit(LessThan n) {
-            return n.f0.accept(this);
-        }
-        public String visit(Load n) {
-            return n.f0.accept(this);
-        }
-        public String visit(Move n) {
-            return n.f0.accept(this);
-        }
-        public String visit(Alloc n) {
-            return n.f0.accept(this);
-        }
-        public String visit(Call n) {
-            return n.f0.accept(this);
-        }
-        public String visit(Identifier n) {
-            return n.f0.tokenImage;
-        }
-        public String visit(Instruction n) {
-            return n.f0.choice.accept(this);
-        }
+public class LivenessAnalysis implements Visitor {
+    public LivenessAnalysis(FunctionDecl f) {
+        f.accept(this);
     }
-
-    static class UseVisitor extends GJNoArguDepthFirst<ArrayList<String>> {
-        ArrayList<String> lst = new ArrayList<>();
-        public ArrayList<String> visit(SetInteger n) { lst = new ArrayList<>(); return null; }
-        public ArrayList<String> visit(SetFuncName n) { lst = new ArrayList<>(); return null; }
-        public ArrayList<String> visit(ErrorMessage n) { lst = new ArrayList<>(); return null; }
-        public ArrayList<String> visit(LabelWithColon n) { lst = new ArrayList<>(); return null; }
-        public ArrayList<String> visit(Goto n) { lst = new ArrayList<>(); return null; }
-        public ArrayList<String> visit(Add n) {
-            lst = new ArrayList<String>(2);
-            n.f2.accept(this);
-            n.f4.accept(this);
-            return lst;
-        }
-        public ArrayList<String> visit(Subtract n) {
-            lst = new ArrayList<String>(2);
-            n.f2.accept(this);
-            n.f4.accept(this);
-            return lst;
-        }
-        public ArrayList<String> visit(Multiply n) {
-            lst = new ArrayList<String>(2);
-            n.f2.accept(this);
-            n.f4.accept(this);
-            return lst;
-        }
-        public ArrayList<String> visit(LessThan n) {
-            lst = new ArrayList<String>(2);
-            n.f2.accept(this);
-            n.f4.accept(this);
-            return lst;
-        }
-        public ArrayList<String> visit(Load n) {
-            lst = new ArrayList<String>(2);
-            n.f3.accept(this);
-            n.f5.accept(this);
-            return lst;
-        }
-        public ArrayList<String> visit(Store n) {
-            lst = new ArrayList<String>(2);
-            n.f1.accept(this);
-            n.f6.accept(this);
-            return lst;
-        }
-        public ArrayList<String> visit(Move n) {
-            lst = new ArrayList<String>(1);
-            n.f2.accept(this);
-            return lst;
-        }
-        public ArrayList<String> visit(Alloc n) {
-            lst = new ArrayList<String>(1);
-            n.f4.accept(this);
-            return lst;
-        }
-        public ArrayList<String> visit(Print n) {
-            lst = new ArrayList<String>(1);
-            n.f2.accept(this);
-            return lst;
-        }
-        public ArrayList<String> visit(IfGoto n) {
-            lst = new ArrayList<>(1);
-            n.f1.accept(this);
-            return lst;
-        }
-        public ArrayList<String> visit(If n) {
-            lst = new ArrayList<>(1);
-            n.f1.accept(this);
-            return lst;
-        }
-        public ArrayList<String> visit(Call n) {
-            lst = new ArrayList<>(n.f5.size() + 1);
-            n.f3.accept(this);
-            for (Node i : n.f5.nodes) {
-                i.accept(this);
-            }
-            return lst;
-        }
-        public ArrayList<String> visit(Instruction n) {
-            n.f0.choice.accept(this);
-            return lst;
-        }
-        public ArrayList<String> visit(Identifier n) {
-            lst.add(n.f0.tokenImage);
-            return null;
-        }
-    }
-    HashSet<String> all;
-    String ret;
-    DefVisitor defID = new DefVisitor();
-    UseVisitor useIDs = new UseVisitor();
     int size;
-    ArrayList<String> def;
-    ArrayList<LinkedHashSet<String>> use;
-    ArrayList<TreeSet<String>> in;
-    ArrayList<TreeSet<String>> out;
-    ArrayList<TreeSet<String>> in_ = null;
-    ArrayList<TreeSet<String>> out_ = null;
-    public EnumSet<Reg> args_overridden;
-    public LinkedHashSet<String> use(int time) { return use.get(time - 1); }
-    public Integer timeof(Instruction i) { return block.indexOf(i) + 1; }
-    LinkedHashMap<Instruction, ArrayList<Instruction>> succ;
-    ArrayList<Instruction> block;
-    TreeSet<Interval> intervals; // closest thing java collections has to sorted list
-    public TreeSet<Interval> intervals() { return intervals; }
-    HashMap<String, boolean[]> intervalMap;
-    LinkedHashMap<Instruction, TreeSet<Interval>> liveAtInstruction = new LinkedHashMap<Instruction, TreeSet<Interval>>();
-    public LinkedHashMap<Instruction, TreeSet<Interval>> getLiveAtInstruction() {
-        for ( int i = 0; i < block.size(); i++ ) {
-            Instruction inst = block.get(i);
-            TreeSet<Interval> this_intervals = new TreeSet<>(new IntervalComparator(IntervalComparator.Type.LENGTH));
-            liveAtInstruction.put(inst, this_intervals);
-            for ( Interval ivl : intervals ) {
-                if ( ivl.start <= i && i < ivl.stop ) {
-                    this_intervals.add(ivl);
-                }
-            }
-        }
-        return liveAtInstruction;
+    ArrayList<Identifier> def;
+    ArrayList<ArrayList<Identifier>> use;
+    ArrayList<TreeSet<Identifier>> in;
+    ArrayList<TreeSet<Identifier>> out;
+    ArrayList<TreeSet<Identifier>> in_ = null;
+    ArrayList<TreeSet<Identifier>> out_ = null;
+    ArrayList<ArrayList<Integer>> succ;
+    public TreeSet<Interval> intervals; // closest thing java collections has to sorted list
+    public void visit(Program p) {
+        // to be used at the level of function declarations
     }
-    public LivenessAnalysis(FunctionDeclaration f) {
-        this.size = f.f5.f0.nodes.size() + 1;
+    ArrayList<Identifier> args;
+    FunctionName funcname;
+    Block block;
+    public void visit(FunctionDecl n) {
+        this.funcname = n.functionName;
+        this.args = new ArrayList<>();
+        this.args.addAll(n.formalParameters);
+        this.block = n.block;
+        this.block.accept(this);
+    }
+    Identifier ret;
+    ArrayList<Instruction> code;
+    public void visit(Block n) {
+        ret = n.return_id;
+        this.size = n.instructions.size();
+        this.code = new ArrayList<>(n.instructions);
         this.init();
-        f.f5.accept(this);
-        this.in.get(this.in.size()-1).add(this.ret);
-        while ( !this.stop() ) this.iter(); // liveness analysis happens here
-        all = new HashSet<>();
-        for (int i = 0; i < this.size; i++) {
-            all.addAll(union(in.get(i), out.get(i)));
-        }
-        intervals = new TreeSet<>(new IntervalComparator(IntervalComparator.Type.START));
-        intervalMap = new HashMap<>();
-        for (String s : all) {
-            boolean live;
-            int start;
-            boolean[] lifetime = new boolean[this.size+2];
-            intervalMap.put(s, lifetime);
-            start = 0;
-            live = in.get(0).contains(s);
-            lifetime[0] = live;
-            int i;
-            for (i = 0; i < this.size; i++) {
-                if (out.get(i).contains(s)) {
-                    if (!live) {
-                        live = true;
-                        start = i+1;
-                    }
-                    lifetime[i+1] = true;
-                } else {
-                    if (live) {  // live-in and out does not contain s, end of interval
-                        live = false;
-                        intervals.add(new Interval(start, i+1, s));
-                    }
-                    lifetime[i+1] = false;
-                }
-            }
-            lifetime[i + 1] = live;
-            if (live) { intervals.add(new Interval(start, i+2, s)); }
-        }
-        // maybe check here for how many saved regs needed in call
+        while ( !this.stop() ) this.iter();
+        this.LinearScanIntervals();
     }
-
-    public int LinearScan(List<String> args) {
-        TreeSet<Interval> _intervals = new TreeSet<>(new IntervalComparator(IntervalComparator.Type.START));
-        _intervals.addAll(intervals);
-        TreeSet<Interval> active = new TreeSet<>(new IntervalComparator(IntervalComparator.Type.LENGTH));
-        EnumSet<Reg> regs = EnumSet.noneOf(Reg.class),
-                temp_regs = EnumSet.copyOf(Reg.tempset),
-                save_regs = EnumSet.copyOf(Reg.saveset),
-                allowed = EnumSet.copyOf(Reg.tempset); allowed.addAll(Reg.saveset);
-        for ( String arg : args ) {
-            Reg r = Reg.STACK;
-            for (Reg reg : allowed) {
-                if ( !regs.contains(reg) ) {
-                    r = reg;
-                    regs.add(reg);
-                    break;
-                }
-            }
-            for ( Interval i : intervals ) {
-                if ( i.id.equals(arg) ) {
-                    i.reg = r;
-                    _intervals.remove(i);
-                    active.add(i);
-                    break;
-                }
-            }
-        }
-        EnumSet<Reg> saved_used = EnumSet.copyOf(regs); saved_used.retainAll(save_regs);
-        int max = saved_used.size();
-        for ( Interval i : _intervals ) {
-            TreeSet<Interval> toRemove = new TreeSet<>(new IntervalComparator(IntervalComparator.Type.LENGTH));
-            for ( Interval o : active ) {
-                if ( o.stop <= i.start ) {
-                    regs.remove(o.reg); // free register
-                    toRemove.add(o);
-                }
-            }
-            active.removeAll(toRemove);
-            // maybe check how many active regs need to be saved if call
-
-//            if ( args.contains(i.id) ) {
-//                i.reg = Reg.arg(args.indexOf(i.id));
+    public TreeSet<Identifier> out(int n) {
+        return this.out.get(n);
+    }
+//    public LivenessAnalysis(FunctionDecl f) {
+//        this.size = f.block.instructions.size();
+//        this.init();
+//        f.block.accept(this);
+//        this.in.get(this.in.size()-1).add(this.ret);
+//        while ( !this.stop() ) this.iter(); // liveness analysis happens here
+//        all = new HashSet<>();
+//        for (int i = 0; i < this.size; i++) {
+//            all.addAll(union(in.get(i), out.get(i)));
+//        }
+//        intervals = new TreeSet<>(new IntervalComparator(IntervalComparator.Type.START));
+//        intervalMap = new HashMap<>();
+//        for (String s : all) {
+//            boolean live;
+//            int start;
+//            boolean[] lifetime = new boolean[this.size+2];
+//            intervalMap.put(s, lifetime);
+//            start = 0;
+//            live = in.get(0).contains(s);
+//            lifetime[0] = live;
+//            int i;
+//            for (i = 0; i < this.size; i++) {
+//                if (out.get(i).contains(s)) {
+//                    if (!live) {
+//                        live = true;
+//                        start = i+1;
+//                    }
+//                    lifetime[i+1] = true;
+//                } else {
+//                    if (live) {  // live-in and out does not contain s, end of interval
+//                        live = false;
+//                        intervals.add(new Interval(start, i+1, s));
+//                    }
+//                    lifetime[i+1] = false;
+//                }
 //            }
-//            else
-            if ( !regs.containsAll(temp_regs) ) {
-                for ( Reg r : temp_regs ) {
-                    if ( !regs.contains(r) ) {
-                        regs.add(r);
-                        i.reg = r;
-                        break;
-                    }
-                }
-                active.add(i);
-            }
-            else if ( !regs.containsAll(save_regs) ) {
-                int idx = 0;
-                for ( Reg r : save_regs ) {
-                    if ( !regs.contains(r) ) {
-                        max = Math.max(max, idx);
-                        regs.add(r);
-                        i.reg = r;
-                        break;
-                    }
-                    idx++;
-                }
-                active.add(i);
-            }
-            else {
-                i.reg = Reg.STACK; // spill
-            }
-        }
-        ParamCounter pc = new ParamCounter();
-        int countmax = 0;
-        for ( Instruction i : block ) { // maybe check for how many saved regs needed for call
-            Integer n = i.accept(pc);
-            if ( n != null ) {
-                int t = timeof(i);
-                int count = 0;
-                for ( Interval o : intervals ) {
-                    if ( t > o.start && t < o.stop
-                            && (Reg.tempset.contains(o.reg) || Reg.argset.contains(o.reg)) ) {
-                        count++;
-                    }
-                }
-                countmax = Math.max(count, countmax);
-            }
-        }
-        return Math.min(max + countmax, Reg.saved);
+//            lifetime[i + 1] = live;
+//            if (live) { intervals.add(new Interval(start, i+2, s)); }
+//        }
+//        // maybe check here for how many saved regs needed in call
+//    }
+    IntervalComparator byStart = new IntervalComparator(IntervalComparator.Type.START);
+    private int max(ArrayList<Integer> lst) {
+        int max = lst.get(0);
+        lst.forEach(i -> i = Math.max(i, max));
+        return max;
     }
-    private static class ParamCounter extends GJNoArguDepthFirst<Integer> {
-        public Integer count(List<Instruction> nodes) {
-            int max = 0;
-            for ( Instruction i : nodes ) {
-                Integer v = i.accept(this);
-                v = (v==null) ? 0 : v;
-                max = Math.max(max, v);
+    private void LinearScanIntervals() {
+        Set<Identifier> allIDs = init_intervals();
+        for (Identifier id : allIDs) {
+            int start = 0;
+            int end = this.size;
+            for ( int i = 0; i < this.size; i++ ) {
+                if ( comp.containedIn(id, this.use.get(i)) ) {
+                    end = i;
+                }
             }
-            return max;
-        }
-        public Integer visit(NodeListOptional n) {
-            int max = 0;
-            for ( Node i : n.nodes ) {
-                Integer v = i.accept(this);
-                v = (v==null) ? 0 : v;
-                max = Math.max(max, v);
+            for ( int i = 0; i < this.size; i++ ) {
+                if ( comp.equals(id, this.def.get(i)) ) {
+                    start = i;
+                    break;
+                }
             }
-            return max;
+            if ( comp.equals(this.ret, id) ) { end = this.size; }
+            intervals.add(new Interval(start, end, id));
         }
-        public Integer visit(Instruction n) {
-            return n.f0.choice.accept(this);
+    }
+    private void generateIntervals() {
+        Set<Identifier> allIDs = init_intervals();
+        boolean live;
+        int start;
+        for ( Identifier id : allIDs ) {
+            live = false;
+            start = 0;
+            int i;
+            for ( i = 0; i < this.size; i++ ) {
+                if ( this.out.get(i).contains(id) && !live ) {
+                    live = true;
+                    start = i;
+                } else if ( !this.out.get(i).contains(id) && live ) {
+                    live = false;
+                    intervals.add(new Interval(start, i, id));
+                }
+            }
+            if ( live ) {
+                if ( id == this.ret ) {
+                    i++;
+                }
+                intervals.add(new Interval(start, i, id));
+            }
         }
-        public Integer visit(Call n) { return n.f5.nodes.size(); }
+    }
+
+    private Set<Identifier> init_intervals() {
+        intervals = new TreeSet<>(byStart);
+        Set<Identifier> allIDs = new TreeSet<>(comp);
+        for (int i = 0; i < this.size; i++) {
+            allIDs.addAll(this.in.get(i));
+            allIDs.addAll(this.out.get(i));
+        }
+        return allIDs;
     }
 
     private void init() {
-        use = new ArrayList<LinkedHashSet<String>>(this.size);
+        use = new ArrayList<>(this.size);
         def = new ArrayList<>(this.size);
-        in = new ArrayList<TreeSet<String>>(this.size);
-        out = new ArrayList<TreeSet<String>>(this.size);
-        succ = new LinkedHashMap<>();
+        in = new ArrayList<>(this.size);
+        out = new ArrayList<>(this.size);
+        succ = new ArrayList<>(this.size);
         in_ = null;
         out_ = null;
         for (int i = 0; i < this.size; i++) {
-            in.add(new TreeSet<>());
-            out.add(new TreeSet<>());
+            in.add(i, new TreeSet<>(comp));
+            out.add(i, new TreeSet<>(comp));
+            succ.add(i, new ArrayList<>());
+            use.add(i, new ArrayList<>());
+            def.add(i, null);
+        }
+        this.code.forEach(i -> i.accept(this));
+        this.mapLocs();
+    }
+
+    private void mapLocs() {
+        for (Label l : labelLocs.keySet()) {
+            int loc = labelLocs.get(l);
+            if ( this.gotos.containsKey(l) ) {
+                for ( Goto g : this.gotos.get(l) ) {
+                    int idx = this.code.indexOf(g);
+                    this.succ.get(idx).add(loc);
+                }
+            }
+            if ( this.ifGotos.containsKey(l) ) {
+                for ( IfGoto ig : this.ifGotos.get(l) ) {
+                    int idx = this.code.indexOf(ig);
+                    this.succ.get(idx).add(loc);
+                }
+            }
         }
     }
 
+    IDComparator comp = new IDComparator();
+    public static class IDComparator implements Comparator<Identifier> {
+        public int compare(Identifier identifier, Identifier t1) {
+            return identifier.toString().compareTo(t1.toString());
+        }
+        public boolean equals(Identifier t1, Identifier t2) {
+            if ( t1 == null || t2 == null ) { return false; }
+            return t1.toString().equals(t2.toString());
+        }
+        public boolean containedIn(Identifier t1, Collection<Identifier> t2) {
+            for ( Identifier i : t2 ) {
+                if ( this.equals(i, t1) ) { return true; }
+            }
+            return false;
+        }
+    }
+    public TreeSet<Identifier> in(int n) {
+        if ( n < this.in.size() ) {
+            return this.in.get(n);
+        } else {
+            TreeSet<Identifier> ret = new TreeSet<>(new IDComparator());
+            ret.add(this.ret);
+            return ret;
+        }
+    }
     private void iter() {
         this.in_ = deepCopy(this.in);
         this.out_ = deepCopy(this.out);
-        ArrayList<Instruction> rev = new ArrayList<>(this.block); Collections.reverse(rev);
-        for ( Instruction n : rev ) {
-            Set<String> succ_in = new LinkedHashSet<>();
-//            Instruction[] successors = this.succ(n);
-            ArrayList<Instruction> successors = this.succ(n);
-            for ( Instruction s : successors ) {
-                succ_in = this.union(succ_in, this.in(s));
+        for (int i = this.code.size() - 1; i >= 0; i--) {
+            TreeSet<Identifier> successors_in = new TreeSet<>(comp);
+            ArrayList<Integer> successors = this.succ.get(i);
+            for (int j : successors) {
+                successors_in = this.union(successors_in, this.in(j));
             }
-            this.out(n, succ_in);
-            TreeSet<String> o = this.out(n), d = this.def(n);
-            TreeSet<String> out_not_def = this.difference(o, d);
-            this.in(n, this.union(this.use(n), out_not_def));
+            this.out.set(i, this.union(this.out.get(i), successors_in));
+            TreeSet<Identifier> outs = new TreeSet<>(this.out.get(i));
+            Identifier define = this.def.get(i);
+            if ( define != null ) {
+                outs.remove(define);
+            }
+            TreeSet<Identifier> use = new TreeSet<>(comp); use.addAll(this.use.get(i));
+            this.in.set(i, this.union(use, outs));
         }
     }
-    private TreeSet<String> union(Set<String> s1, Set<String> s2) {
-        TreeSet<String> union = new TreeSet<>();
+    private TreeSet<Identifier> union(TreeSet<Identifier> s1, TreeSet<Identifier> s2) {
+        TreeSet<Identifier> union = new TreeSet<>(comp);
         union.addAll(s1);
         union.addAll(s2);
         return union;
     }
-    private TreeSet<String> difference(TreeSet<String> s1, TreeSet<String> s2) {
-        TreeSet<String> diff = new TreeSet<>(s1);
-        diff.removeAll(s2);
-        return diff;
-    }
-    private ArrayList<TreeSet<String>> deepCopy(ArrayList<TreeSet<String>> a) {
-        ArrayList<TreeSet<String>> b = new ArrayList<>(a.size());
-        for (TreeSet<String> s : a) {
+    private ArrayList<TreeSet<Identifier>> deepCopy(ArrayList<TreeSet<Identifier>> a) {
+        ArrayList<TreeSet<Identifier>> b = new ArrayList<>(a.size());
+        for (TreeSet<Identifier> s : a) {
             b.add(new TreeSet<>(s));
         }
         return b;
@@ -377,150 +249,105 @@ public class LivenessAnalysis extends DepthFirstVisitor {
         return in.equals(in_) && out.equals(out_);
     }
 
-    private ArrayList<Instruction> succ(Instruction n) {
-//        int[] arr1 = this.succ.get(this.block.indexOf(n));
-//        Instruction[] arr2 = new Instruction[arr1.length];
-//        for ( int i = 0; i < arr1.length; i++ ) {
-//            int idx = arr1[i];
-//            arr2[i] = (idx >= this.block.size()) ? null : this.block.get(idx);
-//        }
-//        return arr2;
-        return succ.get(n);
+    public void visit(Add n) {
+        int idx = this.code.indexOf(n);
+        this.def.set(idx, n.lhs);
+        this.use.get(idx).addAll(Arrays.asList(n.arg1, n.arg2));
+        this.succ.get(idx).add(idx+1);
     }
-
-    public LinkedHashSet<String> use(Instruction n) {
-        return this.use.get(this.block.indexOf(n));
+    public void visit(Alloc n) {
+        int idx = this.code.indexOf(n);
+        this.def.set(idx, n.lhs);
+        this.use.get(idx).add(n.size);
+        this.succ.get(idx).add(idx+1);
     }
-
-    public TreeSet<String> def(Instruction n) {
-        int idx = this.block.indexOf(n);
-        String s = this.def.get(idx);
-        TreeSet<String> r = new TreeSet<>();
-        if ( s != null ) { r.add(s); }
-        return r;
+    public void visit(Call n) {
+        int idx = this.code.indexOf(n);
+        this.def.set(idx, n.lhs);
+        ArrayList<Identifier> u = this.use.get(idx);
+        u.add(n.callee);
+        u.addAll(n.args);
+        this.succ.get(idx).add(idx+1);
     }
-
-    private void in(Instruction n, Set<String> set) {
-        this.in.get(this.block.indexOf(n)).addAll(set);
+    public void visit(ErrorMessage n) {
+        int idx = this.code.indexOf(n);
+        this.succ.get(idx).add(idx+1);
     }
-
-    private void out(Instruction n, Set<String> set) {
-        int idx = this.block.indexOf(n);
-        this.out.get(idx).addAll(set);
-    }
-
-    private TreeSet<String> in(Instruction n) {
-        TreeSet<String> r;
-        int idx = this.block.indexOf(n);
-        if (idx == -1) { // successor to last instruction (return statement)
-            r = new TreeSet<>();
-            r.add(this.ret);
-        } else {
-            r = this.in.get(idx);
-        }
-        return r;
-    }
-
-    private TreeSet<String> out(Instruction n) {
-        return this.out.get(this.block.indexOf(n));
-    }
-
-    public void visit(Block n) {
-        this.ret = n.f2.f0.tokenImage;
-        this.block = new ArrayList<>(n.f0.nodes.size());
-        for (Node i : n.f0.nodes) {
-            i.accept(this);
-        }
-        LabelVisitor lv = new LabelVisitor();
-        for (Instruction i : this.block) {
-            ArrayList<Instruction> successors = new ArrayList<>();
-            int idx = this.block.indexOf(i);
-            String label;
-            switch (i.f0.which) {
-                case ErrorMessage:
-                    break;
-                case Goto:
-                    label = i.accept(lv);
-                    for (Instruction j : this.block) {
-                        if (j.f0.which == LabelWithColon && j.accept(lv).equals(label)) {
-                            successors.add(j);
-                            break;
-                        }
-                    }
-                    break;
-                case IfGoto:
-                    label = i.accept(lv);
-                    for (Instruction j : this.block) {
-                        if (j.f0.which == LabelWithColon && j.accept(lv).equals(label)) {
-                            successors.add(j);
-                            break;
-                        }
-                    }
-                default:
-                    for ( int jdx = 0; jdx < this.block.size(); jdx++) {
-                        if (jdx == idx + 1) {
-                            Instruction j = this.block.get(jdx);
-                            successors.add(j);
-                        }
-                    }
-                    break;
-            }
-            succ.put(i, successors);
+    private static class LabelComparator implements Comparator<Label> {
+        public int compare(Label o1, Label o2) {
+            return o1.toString().compareTo(o2.toString());
         }
     }
+    LabelComparator labelcomp = new LabelComparator();
+    TreeMap<Label,ArrayList<Goto>> gotos = new TreeMap<>(labelcomp);
+    public void visit(Goto n) {
+        //nothind used or defined
+        this.gotos.computeIfAbsent(n.label, k -> new ArrayList<>()).add(n);
+    }
+    TreeMap<Label, ArrayList<IfGoto>> ifGotos = new TreeMap<>(labelcomp);
 
-    class LabelVisitor extends GJNoArguDepthFirst<String> {
-        public String visit(Label n) {
-            return n.f0.tokenImage;
-        }
-        public String visit(LabelWithColon n) {
-            return n.f0.accept(this);
-        }
-        public String visit(Goto n) {
-            return n.f1.accept(this);
-        }
-        public String visit(IfGoto n) {
-            return n.f3.accept(this);
-        }
-        public String visit(Instruction n) {
-            return n.f0.choice.accept(this);
-        }
+    public void visit(IfGoto n) {
+        int idx = this.code.indexOf(n);
+        this.use.get(idx).add(n.condition);
+        this.ifGotos.computeIfAbsent(n.label, k -> new ArrayList<>()).add(n);
+        this.succ.get(idx).add(idx+1);
+    }
+    TreeMap<Label, Integer> labelLocs = new TreeMap<>(labelcomp);
+    public void visit(LabelInstr n) {
+        int idx = this.code.indexOf(n);
+        this.labelLocs.put(n.label, idx);
+        this.succ.get(idx).add(idx+1);
+    }
+    public void visit(LessThan n) {
+        int idx = this.code.indexOf(n);
+        this.def.set(idx, n.lhs);
+        this.use.get(idx).addAll(Arrays.asList(n.arg1, n.arg2));
+        this.succ.get(idx).add(idx+1);
+    }
+    public void visit(Load n) {
+        int idx = this.code.indexOf(n);
+        this.def.set(idx, n.lhs);
+        this.use.get(idx).add(n.base);
+        this.succ.get(idx).add(idx+1);
+    }
+    public void visit(Move_Id_FuncName n) {
+        int idx = this.code.indexOf(n);
+        this.def.set(idx, n.lhs);
+        this.succ.get(idx).add(idx+1);
+    }
+    public void visit(Move_Id_Id n) {
+        int idx = this.code.indexOf(n);
+        this.def.set(idx, n.lhs);
+        this.use.get(idx).add(n.rhs);
+        this.succ.get(idx).add(idx+1);
+    }
+    public void visit(Move_Id_Integer n) {
+        int idx = this.code.indexOf(n);
+        this.def.set(idx, n.lhs);
+        this.succ.get(idx).add(idx+1);
+    }
+    public void visit(Multiply n) {
+        int idx = this.code.indexOf(n);
+        this.def.set(idx, n.lhs);
+        this.use.get(idx).addAll(Arrays.asList(n.arg1, n.arg2));
+        this.succ.get(idx).add(idx+1);
+    }
+    public void visit(Print n) {
+        int idx = this.code.indexOf(n);
+        this.use.get(idx).add(n.content);
+        this.succ.get(idx).add(idx+1);
+    }
+    public void visit(Store n) {
+        int idx = this.code.indexOf(n);
+        this.use.get(idx).addAll(Arrays.asList(n.base, n.rhs));
+        this.succ.get(idx).add(idx+1);
+    }
+    public void visit(Subtract n) {
+        int idx = this.code.indexOf(n);
+        this.def.set(idx, n.lhs);
+        this.use.get(idx).addAll(Arrays.asList(n.arg1, n.arg2));
+        this.succ.get(idx).add(idx+1);
     }
 
-    LabelVisitor labelID = new LabelVisitor();
 
-    private int findLabel(String label) {
-        for (int i = 0; i < this.block.size(); i++) {
-            Instruction inst = this.block.get(i);
-            if (inst.f0.which == LabelWithColon && label.equals(labelID.visit(inst))) {
-                return i;
-            }
-        }
-        return -1;
-    }
-
-    private int[] findSuccessor(Instruction inst) {
-        int[] successors;
-        if (inst.f0.which == IfGoto) {
-            successors = new int[2];
-            String l = labelID.visit(inst);
-            successors[1] = findLabel(l);
-        } else {
-            successors = new int[1];
-        }
-        if (inst.f0.which == Goto) {
-            String l = labelID.visit(inst);
-            successors[0] = findLabel(l);
-        } else {
-            successors[0] = this.block.indexOf(inst) + 1;
-        }
-        return successors;
-    }
-
-    public void visit(Instruction n) {
-        HashSet<String> set;
-        block.add(n);
-        def.add(defID.visit(n));
-        use.add(new LinkedHashSet<>(useIDs.visit(n)));
-    }
 }

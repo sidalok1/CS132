@@ -1,74 +1,59 @@
 package hw4utils;
-
+import IR.token.*;
 import java.util.*;
 
 public class Inst {
     public static class InvalidInstruction extends RuntimeException {}
-    public static enum Type {
-        LABEL,
-        INT,
-        FUNC,
-        ADD,
-        SUB,
-        MULT,
-        LESS,
-        INDEX,
-        ARRAY,
-        REG,
-        REGtoID,
-        IDtoREG,
-        ALLOC,
-        PRINT,
-        ERROR,
-        GOTO,
-        IF0,
-        CALL;
-    }
+
     public Type type;
     private Reg rs1, rs2;
     public Reg rd;
-    private String id, label, func, str;
+    private Identifier id;
+    private Label label;
+    private FunctionName func;
+    private String str;
     private int imm;
-    private ArrayList<String> args;
-    private static final HashSet<Type> arith = new HashSet<Type>(Arrays.asList(Type.ADD, Type.SUB, Type.MULT, Type.LESS));
+    private ArrayList<Identifier> args;
 
-    public Inst(Type type, String s) {
-        if (!type.equals(Type.LABEL) && !type.equals(Type.GOTO) && !type.equals(Type.ERROR))
-            { throw new InvalidInstruction(); }
-        this.type = type;
-        if (type.equals(Type.ERROR)) {
-            str = s;
+    public Inst(Label l, boolean isGoto) {
+        if (isGoto) {
+            type = Type.GOTO;
         } else {
-            label = s;
+            type = Type.LABEL;
         }
+        label = l;
     }
-    public Inst(Type type, Reg r, String s) {
-        this.type = type;
-        switch (type) {
-            case FUNC:
-                this.rd = r;
-                this.func = s;
-                break;
-            case IF0:
-                this.rs1 = r;
-                this.label = s;
-                break;
-            case REGtoID:
-                this.rs1 = r;
-                this.id = s;
-                break;
-            case IDtoREG:
-                this.rd = r;
-                this.id = s;
-                break;
-            case INT:
-                this.rd = r;
-                this.imm = Integer.parseInt(s);
-                break;
-            default:
-                throw new InvalidInstruction();
-        }
+
+    public Inst(Reg rd, FunctionName f) {
+        type = Type.FUNC;
+        this.rd = rd;
+        func = f;
     }
+
+    public Inst(Reg rd, Identifier id) {
+        type = Type.IDtoREG;
+        this.rd = rd;
+        this.id = id;
+    }
+
+    public Inst(Identifier id, Reg rs) {
+        type = Type.REGtoID;
+        this.rs1 = rs;
+        this.id = id;
+    }
+
+    public Inst(Reg rs, Label l) {
+        type = Type.IF0;
+        this.rs1 = rs;
+        label = l;
+    }
+
+    public Inst(Reg rd, int imm) {
+        type = Type.INT;
+        this.rd = rd;
+        this.imm = imm;
+    }
+
     public Inst(Reg rd, Reg rs1, int imm) {
         this.rd = rd;
         this.rs1 = rs1;
@@ -81,15 +66,18 @@ public class Inst {
         this.rs2 = rs2;
         this.type = Type.ARRAY;
     }
-    public Inst(Reg rd, Reg rs1, List<String> args) {
+    public Inst(Reg rd, Reg rs1, List<Identifier> args) {
         this.type = Type.CALL;
         this.rd = rd;
         this.rs1 = rs1;
         this.args = new ArrayList<>(args);
     }
-    public Inst(Type type, Reg rd, Reg rs1) {
-        if (!type.equals(Type.REG) && !type.equals(Type.ALLOC)) { throw new InvalidInstruction(); }
-        this.type = type;
+    public Inst(Reg rd, Reg rs1, boolean regToReg) {
+        if (regToReg) {
+            this.type = Type.REG;
+        } else {
+            this.type = Type.ALLOC;
+        }
         this.rs1 = rs1;
         this.rd = rd;
     }
@@ -97,9 +85,26 @@ public class Inst {
         this.rs1 = rs1;
         this.type = Type.PRINT;
     }
-    public Inst(Type type, Reg rd, Reg rs1, Reg rs2) {
-        if (!arith.contains(type)) { throw new InvalidInstruction(); }
-        this.type = type;
+    public Inst(String msg) {
+        this.type = Type.ERROR;
+        this.str = msg;
+    }
+    public static enum Arith{ add, sub, mul, les }
+    public Inst(Reg rd, Reg rs1, Reg rs2, Arith arith) {
+        switch (arith) {
+            case add:
+                this.type = Type.ADD;
+                break;
+            case sub:
+                this.type = Type.SUB;
+                break;
+            case mul:
+                this.type = Type.MULT;
+                break;
+            case les:
+                this.type = Type.LESS;
+                break;
+        }
         this.rs1 = rs1;
         this.rs2 = rs2;
         this.rd = rd;
@@ -125,7 +130,7 @@ public class Inst {
             case IF0: return "\t" + "if0 " + rs1 + " goto " + label;
             case CALL: {
                 StringJoiner sj = new StringJoiner(" ", " ( ", " )");
-                for ( String s : args) { sj.add(s); }
+                for ( Identifier s : args) { sj.add(s.toString()); }
                 return "\t" + rd + " = call " + rs1 + sj.toString();
             }
             default: return "";

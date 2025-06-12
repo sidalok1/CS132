@@ -16,15 +16,18 @@ public class IntervalComparator implements Comparator<Interval> {
             case LENGTH:
                 cmp = o1.length() - o2.length();
                 break;
+            case END:
+                cmp = o2.stop - o1.stop;
+                break;
             default:
                 cmp = 0;
                 break;
         }
-        return (cmp != 0) ? cmp : o1.id.compareTo(o2.id);
+        return (cmp != 0) ? cmp : o1.id.toString().compareTo(o2.id.toString());
     }
 
     public static enum Type {
-        START, STOP, LENGTH
+        START, STOP, LENGTH, END
     }
     private final Type type;
     public IntervalComparator(Type type) {
