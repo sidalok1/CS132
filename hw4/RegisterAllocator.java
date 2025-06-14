@@ -45,18 +45,24 @@ public class RegisterAllocator implements Visitor {
         program.functions.add(fun);
     }
     EnumSet<Reg> usedSaveRegister;
+
+    private static EnumSet<Reg> tempset = Reg.tempset;
+    private static EnumSet<Reg> saveset = EnumSet.of(
+            Reg.s1, Reg.s2, Reg.s3, Reg.s4, Reg.s5, Reg.s6, Reg.s7, Reg.s8, Reg.s9
+    );
+
     TreeMap<Identifier, Reg> where;
     private Reg assign(Identifier id) {
         Reg r = null;
-        if ( !where.values().containsAll(EnumSet.of(Reg.t2, Reg.t3, Reg.t4, Reg.t5)) ) {
-            for ( Reg t : EnumSet.of(Reg.t2, Reg.t3, Reg.t4, Reg.t5) ) {
+        if ( !where.values().containsAll(tempset) ) {
+            for ( Reg t : tempset ) {
                 if (!where.containsValue(t)) {
                     r = t;
                     break;
                 }
             }
-        } else if ( !where.values().containsAll(Reg.saveset) ) {
-            for ( Reg s : Reg.saveset ) {
+        } else if ( !where.values().containsAll(saveset) ) {
+            for ( Reg s : saveset ) {
                 if (!where.containsValue(s)) {
                     usedSaveRegister.add(s);
                     r = s;
@@ -96,7 +102,7 @@ public class RegisterAllocator implements Visitor {
         public Reg read(Identifier id, int i) {
             Reg r = where.get(id);
             if ( r == Reg.STACK ) {
-                Reg t = i == 0 ? Reg.t0 : Reg.t1;
+                Reg t = i == 0 ? Reg.s10 : Reg.s11;
                 code.add( new Inst(t, mangle(id)));
                 return t;
             } else {
@@ -219,8 +225,8 @@ public class RegisterAllocator implements Visitor {
         Reg rd = where.get(n.lhs);
         if (where.get(n.lhs) != null) {
             if ( rd == Reg.STACK ) {
-                code.add(new Inst(Reg.t0, rs1, rs2, Inst.Arith.add));
-                code.add(new Inst(mangle(n.lhs), Reg.t0));
+                code.add(new Inst(Reg.s10, rs1, rs2, Inst.Arith.add));
+                code.add(new Inst(mangle(n.lhs), Reg.s10));
             } else {
                 code.add(new Inst(where.get(n.lhs), rs1, rs2, Inst.Arith.add));
             }
@@ -230,8 +236,8 @@ public class RegisterAllocator implements Visitor {
         Reg rd = where.get(n.lhs);
         if (where.get(n.lhs) != null) {
             if ( rd == Reg.STACK ) {
-                code.add(new Inst(Reg.t0, rs1, false));
-                code.add(new Inst(mangle(n.lhs), Reg.t0));
+                code.add(new Inst(Reg.s10, rs1, false));
+                code.add(new Inst(mangle(n.lhs), Reg.s10));
             } else {
                 code.add(new Inst(where.get(n.lhs), rs1, false));
             }
@@ -242,13 +248,13 @@ public class RegisterAllocator implements Visitor {
     private void saveAllExcept(Identifier ignore) {
         saved.clear();
         for ( Map.Entry<Identifier, Reg> e : where.entrySet() ) {
-            if ( EnumSet.of(Reg.t2, Reg.t3, Reg.t4, Reg.t5).contains(e.getValue()) && !comp.equals(e.getKey(), ignore) ) {
+            if ( tempset.contains(e.getValue()) && !comp.equals(e.getKey(), ignore) ) {
                 saved.put(e.getKey(), e.getValue());
-                if ( Reg.saveset.containsAll(where.values()) ) {
+                if ( saveset.containsAll(where.values()) ) {
                     code.add(new Inst(mangle(e.getKey()), e.getValue()));
                     e.setValue(Reg.STACK);
                 } else {
-                    for ( Reg s : Reg.saveset ) {
+                    for ( Reg s : saveset ) {
                         if ( !where.containsValue(s) && s != rs1 ) {
                             usedSaveRegister.add(s);
                             code.add(new Inst(s, e.getValue(), true));
@@ -280,8 +286,8 @@ public class RegisterAllocator implements Visitor {
         if (where.get(n.lhs) != null) {
             saveAllExcept(n.lhs);
             if ( rd == Reg.STACK ) {
-                code.add(new Inst(Reg.t0, rs1, callArgs));
-                code.add(new Inst(mangle(n.lhs), Reg.t0));
+                code.add(new Inst(Reg.s10, rs1, callArgs));
+                code.add(new Inst(mangle(n.lhs), Reg.s10));
             } else {
                 code.add(new Inst(where.get(n.lhs), rs1, callArgs));
             }
@@ -304,8 +310,8 @@ public class RegisterAllocator implements Visitor {
         Reg rd = where.get(n.lhs);
         if (where.get(n.lhs) != null) {
             if ( rd == Reg.STACK ) {
-                code.add(new Inst(Reg.t0, rs1, rs2, Inst.Arith.les));
-                code.add(new Inst(mangle(n.lhs), Reg.t0));
+                code.add(new Inst(Reg.s10, rs1, rs2, Inst.Arith.les));
+                code.add(new Inst(mangle(n.lhs), Reg.s10));
             } else {
                 code.add(new Inst(where.get(n.lhs), rs1, rs2, Inst.Arith.les));
             }
@@ -315,8 +321,8 @@ public class RegisterAllocator implements Visitor {
         Reg rd = where.get(n.lhs);
         if (where.get(n.lhs) != null) {
             if ( rd == Reg.STACK ) {
-                code.add(new Inst(Reg.t0, rs1, n.offset));
-                code.add(new Inst(mangle(n.lhs), Reg.t0));
+                code.add(new Inst(Reg.s10, rs1, n.offset));
+                code.add(new Inst(mangle(n.lhs), Reg.s10));
             } else {
                 code.add(new Inst(where.get(n.lhs), rs1, n.offset));
             }
@@ -326,8 +332,8 @@ public class RegisterAllocator implements Visitor {
         Reg rd = where.get(n.lhs);
         if (where.get(n.lhs) != null) {
             if ( rd == Reg.STACK ) {
-                code.add(new Inst(Reg.t0, n.rhs));
-                code.add(new Inst(mangle(n.lhs), Reg.t0));
+                code.add(new Inst(Reg.s10, n.rhs));
+                code.add(new Inst(mangle(n.lhs), Reg.s10));
             } else {
                 code.add(new Inst(where.get(n.lhs), n.rhs));
             }
@@ -337,8 +343,8 @@ public class RegisterAllocator implements Visitor {
         Reg rd = where.get(n.lhs);
         if (where.get(n.lhs) != null) {
             if ( rd == Reg.STACK ) {
-                code.add(new Inst(Reg.t0, rs1, true));
-                code.add(new Inst(mangle(n.lhs), Reg.t0));
+                code.add(new Inst(Reg.s10, rs1, true));
+                code.add(new Inst(mangle(n.lhs), Reg.s10));
             } else {
                 code.add(new Inst(where.get(n.lhs), rs1, true));
             }
@@ -348,8 +354,8 @@ public class RegisterAllocator implements Visitor {
         Reg rd = where.get(n.lhs);
         if (where.get(n.lhs) != null) {
             if ( rd == Reg.STACK ) {
-                code.add(new Inst(Reg.t0, n.rhs));
-                code.add(new Inst(mangle(n.lhs), Reg.t0));
+                code.add(new Inst(Reg.s10, n.rhs));
+                code.add(new Inst(mangle(n.lhs), Reg.s10));
             } else {
                 code.add(new Inst(where.get(n.lhs), n.rhs));
             }
@@ -359,8 +365,8 @@ public class RegisterAllocator implements Visitor {
         Reg rd = where.get(n.lhs);
         if (where.get(n.lhs) != null) {
             if ( rd == Reg.STACK ) {
-                code.add(new Inst(Reg.t0, rs1, rs2, Inst.Arith.mul));
-                code.add(new Inst(mangle(n.lhs), Reg.t0));
+                code.add(new Inst(Reg.s10, rs1, rs2, Inst.Arith.mul));
+                code.add(new Inst(mangle(n.lhs), Reg.s10));
             } else {
                 code.add(new Inst(where.get(n.lhs), rs1, rs2, Inst.Arith.mul));
             }
@@ -376,8 +382,8 @@ public class RegisterAllocator implements Visitor {
         Reg rd = where.get(n.lhs);
         if (where.get(n.lhs) != null) {
             if ( rd == Reg.STACK ) {
-                code.add(new Inst(Reg.t0, rs1, rs2, Inst.Arith.sub));
-                code.add(new Inst(mangle(n.lhs), Reg.t0));
+                code.add(new Inst(Reg.s10, rs1, rs2, Inst.Arith.sub));
+                code.add(new Inst(mangle(n.lhs), Reg.s10));
             } else {
                 code.add(new Inst(where.get(n.lhs), rs1, rs2, Inst.Arith.sub));
             }
